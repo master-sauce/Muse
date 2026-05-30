@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.ffmpeg.FFmpeg
+
 class MuseApp : Application() {
     override fun onCreate() {
         super.onCreate()
@@ -11,7 +12,7 @@ class MuseApp : Application() {
             YoutubeDL.getInstance().init(this)
             FFmpeg.getInstance().init(this)
         } catch (e: Exception) {
-            Log.e("MuseApp", "Failed to initialize YoutubeDL", e)
+            Log.e("MuseApp", "Failed to initialize YoutubeDL components", e)
         }
     }
 }

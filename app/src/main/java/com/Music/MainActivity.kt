@@ -10,11 +10,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.Music.data.local.SongEntity
@@ -43,6 +45,8 @@ fun MusicPlayerScreen(viewModel: MainViewModel = viewModel()) {
     val songs by viewModel.songs.collectAsState()
     val isDownloading by viewModel.isDownloading.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
+    val currentSong by viewModel.currentSong.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState()
 
     Scaffold(
         topBar = {
@@ -76,6 +80,28 @@ fun MusicPlayerScreen(viewModel: MainViewModel = viewModel()) {
                     )
                 }
             }
+        },
+        bottomBar = {
+            currentSong?.let { song ->
+                BottomAppBar {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(song.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(song.artist, style = MaterialTheme.typography.bodySmall)
+                        }
+                        IconButton(onClick = { viewModel.togglePlayback() }) {
+                            Icon(
+                                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play"
+                            )
+                        }
+                    }
+                }
+            }
         }
     ) { innerPadding ->
         LazyColumn(
@@ -86,8 +112,9 @@ fun MusicPlayerScreen(viewModel: MainViewModel = viewModel()) {
             items(songs) { song ->
                 SongItem(
                     song = song,
-                    onPlay = { /* TODO: Play song */ },
-                    onDelete = { viewModel.deleteSong(song) }
+                    onPlay = { viewModel.playSong(song) },
+                    onDelete = { viewModel.deleteSong(song) },
+                    isCurrent = song.id == currentSong?.id
                 )
             }
         }
@@ -95,9 +122,14 @@ fun MusicPlayerScreen(viewModel: MainViewModel = viewModel()) {
 }
 
 @Composable
-fun SongItem(song: SongEntity, onPlay: () -> Unit, onDelete: () -> Unit) {
+fun SongItem(song: SongEntity, onPlay: () -> Unit, onDelete: () -> Unit, isCurrent: Boolean) {
     ListItem(
-        headlineContent = { Text(song.title) },
+        headlineContent = { 
+            Text(
+                song.title, 
+                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            ) 
+        },
         supportingContent = { Text(song.artist) },
         leadingContent = {
             IconButton(onClick = onPlay) {
