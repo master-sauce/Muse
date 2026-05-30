@@ -3,8 +3,7 @@ package com.Music
 import android.app.Application
 import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.ffmpeg_android.FFmpeg
-
+import com.yausername.ffmpeg.FFmpeg
 class MuseApp : Application() {
     override fun onCreate() {
         super.onCreate()

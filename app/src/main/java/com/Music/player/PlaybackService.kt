@@ -2,7 +2,6 @@ package com.Music.player
 
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -14,7 +13,6 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         val player = ExoPlayer.Builder(this)
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
-            .setHandleAudioAttributesDecision(true)
             .build()
         
         mediaSession = MediaSession.Builder(this, player).build()
