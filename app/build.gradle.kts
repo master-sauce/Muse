@@ -78,6 +78,9 @@ dependencies {
     implementation(libs.youtubedl.android)
     implementation(libs.youtubedl.ffmpeg)
 
+    // Image Loading
+    implementation(libs.coil.compose)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

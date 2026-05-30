@@ -2,6 +2,7 @@ package com.Music
 
 import android.app.Application
 import android.content.ComponentName
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
@@ -17,12 +18,18 @@ import com.Music.downloader.DownloadManager
 import com.Music.player.PlaybackService
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val db = Room.databaseBuilder(
@@ -56,6 +63,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _downloadProgress = MutableStateFlow(0f)
     val downloadProgress = _downloadProgress.asStateFlow()
 
+    private val _errorEvents = MutableSharedFlow<String>()
+    val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
+
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val controller: MediaController? get() = if (controllerFuture?.isDone == true) controllerFuture?.get() else null
 
@@ -64,6 +74,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _currentSong = MutableStateFlow<SongEntity?>(null)
     val currentSong = _currentSong.asStateFlow()
+
+    private val _playbackProgress = MutableStateFlow(0f)
+    val playbackProgress = _playbackProgress.asStateFlow()
+
+    private var progressJob: Job? = null
 
     init {
         val sessionToken = SessionToken(application, ComponentName(application, PlaybackService::class.java))
@@ -78,6 +93,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
+                if (isPlaying) startProgressUpdate() else stopProgressUpdate()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -85,6 +101,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentSong.value = songs.value.find { it.id == songId }
             }
         })
+    }
+
+    private fun startProgressUpdate() {
+        progressJob?.cancel()
+        progressJob = viewModelScope.launch {
+            while (true) {
+                controller?.let {
+                    if (it.duration > 0) {
+                        _playbackProgress.value = it.currentPosition.toFloat() / it.duration
+                    }
+                }
+                delay(500)
+            }
+        }
+    }
+
+    private fun stopProgressUpdate() {
+        progressJob?.cancel()
     }
 
     fun downloadSong(url: String) {
@@ -95,7 +129,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _downloadProgress.value = progress
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                _errorEvents.emit("Download failed: ${e.localizedMessage}")
             } finally {
                 _isDownloading.value = false
                 _downloadProgress.value = 0f
@@ -107,11 +141,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         val mediaItem = MediaItem.Builder()
             .setMediaId(song.id)
-            .setUri(song.filePath)
+            .setUri(Uri.fromFile(File(song.filePath)))
             .build()
         player.setMediaItem(mediaItem)
         player.prepare()
         player.play()
+    }
+
+    fun seekTo(progress: Float) {
+        val player = controller ?: return
+        if (player.duration > 0) {
+            player.seekTo((progress * player.duration).toLong())
+        }
     }
 
     fun togglePlayback() {
@@ -131,6 +172,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        progressJob?.cancel()
         controllerFuture?.let {
             MediaController.releaseFuture(it)
         }

@@ -18,7 +18,9 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Muse">
+        android:theme="@style/Theme.Muse"
+        android:extractNativeLibs="true"
+        android:requestLegacyExternalStorage="true">
         
         <service
             android:name=".player.PlaybackService"

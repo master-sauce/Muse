@@ -14,6 +14,7 @@ retrofit = "2.11.0"
 okhttp = "4.12.0"
 room = "2.6.1"
 youtubedl = "0.18.1"
+coil = "2.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -51,6 +52,9 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 # YoutubeDL
 youtubedl-android = { group = "io.github.junkfood02.youtubedl-android", name = "library", version.ref = "youtubedl" }
 youtubedl-ffmpeg = { group = "io.github.junkfood02.youtubedl-android", name = "ffmpeg", version.ref = "youtubedl" }
+
+# Image Loading
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
