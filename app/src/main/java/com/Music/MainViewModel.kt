@@ -21,16 +21,13 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
+
+enum class RepeatMode { NONE, ALL, ONE }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -43,17 +40,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         .create(OdesliService::class.java)
 
     private val repository = MusicRepository(
-        db.songDao(),
-        odesliService,
-        DownloadManager(application),
-        application          // pass context
+        db.songDao(), odesliService, DownloadManager(application), application
     )
 
-    val songs: StateFlow<List<SongEntity>> = MutableStateFlow<List<SongEntity>>(emptyList()).also { state ->
-        viewModelScope.launch { repository.allSongs.collect { state.value = it } }
-    }.asStateFlow()
+    private val _songs = MutableStateFlow<List<SongEntity>>(emptyList())
+    val songs: StateFlow<List<SongEntity>> = _songs.asStateFlow()
 
-    private val _isDownloading = MutableStateFlow(false)
+    private val _isDownloading   = MutableStateFlow(false)
     val isDownloading = _isDownloading.asStateFlow()
 
     private val _downloadProgress = MutableStateFlow(0f)
@@ -69,33 +62,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val controller: MediaController?
         get() = if (controllerFuture?.isDone == true) controllerFuture?.get() else null
 
-    private val _isPlaying = MutableStateFlow(false)
+    private val _isPlaying       = MutableStateFlow(false)
     val isPlaying = _isPlaying.asStateFlow()
 
-    private val _currentSong = MutableStateFlow<SongEntity?>(null)
+    private val _currentSong     = MutableStateFlow<SongEntity?>(null)
     val currentSong = _currentSong.asStateFlow()
 
     private val _playbackProgress = MutableStateFlow(0f)
     val playbackProgress = _playbackProgress.asStateFlow()
 
+    private val _currentPosition = MutableStateFlow(0L)
+    val currentPosition = _currentPosition.asStateFlow()
+
+    private val _duration        = MutableStateFlow(0L)
+    val duration = _duration.asStateFlow()
+
+    private val _isShuffled      = MutableStateFlow(false)
+    val isShuffled = _isShuffled.asStateFlow()
+
+    private val _repeatMode      = MutableStateFlow(RepeatMode.NONE)
+    val repeatMode = _repeatMode.asStateFlow()
+
     private var progressJob: Job? = null
 
     init {
-        val sessionToken = SessionToken(application, ComponentName(application, PlaybackService::class.java))
-        controllerFuture = MediaController.Builder(application, sessionToken).buildAsync()
+        viewModelScope.launch { repository.allSongs.collect { _songs.value = it } }
+
+        val token = SessionToken(application, ComponentName(application, PlaybackService::class.java))
+        controllerFuture = MediaController.Builder(application, token).buildAsync()
         controllerFuture?.addListener({ setupController() }, MoreExecutors.directExecutor())
     }
 
     private fun setupController() {
         val player = controller ?: return
         player.addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _isPlaying.value = isPlaying
-                if (isPlaying) startProgressUpdate() else stopProgressUpdate()
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                _isPlaying.value = playing
+                if (playing) startProgressUpdate() else stopProgressUpdate()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                _currentSong.value = songs.value.find { it.id == mediaItem?.mediaId }
+                _currentSong.value    = _songs.value.find { it.id == mediaItem?.mediaId }
+                _playbackProgress.value = 0f
+                _currentPosition.value  = 0L
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) _duration.value = controller?.duration ?: 0L
             }
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -108,7 +122,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
             while (true) {
-                controller?.let { if (it.duration > 0) _playbackProgress.value = it.currentPosition.toFloat() / it.duration }
+                controller?.let { p ->
+                    val dur = p.duration
+                    val pos = p.currentPosition
+                    if (dur > 0) {
+                        _playbackProgress.value = pos.toFloat() / dur
+                        _currentPosition.value  = pos
+                        _duration.value         = dur
+                    }
+                }
                 delay(500)
             }
         }
@@ -116,68 +138,113 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun stopProgressUpdate() { progressJob?.cancel() }
 
+    // ── Public actions ───────────────────────────────────────────────────────
+
     fun downloadSong(url: String) {
         viewModelScope.launch {
             _isDownloading.value = true
             try {
-                repository.downloadAndSave(url) { progress -> _downloadProgress.value = progress }
+                repository.downloadAndSave(url) { _downloadProgress.value = it }
             } catch (e: Exception) {
                 _errorEvents.emit("Download failed: ${e.localizedMessage}")
-                Log.e("MainViewModel", "Download error", e)
+                Log.e("MusicVM", "download", e)
             } finally {
-                _isDownloading.value = false
+                _isDownloading.value  = false
                 _downloadProgress.value = 0f
             }
         }
     }
 
-    // NEW: import local audio file
     fun importLocalSong(uri: Uri) {
         viewModelScope.launch {
             _isImporting.value = true
-            try {
-                repository.importFromUri(uri)
-            } catch (e: Exception) {
-                _errorEvents.emit("Import failed: ${e.localizedMessage}")
-                Log.e("MainViewModel", "Import error", e)
-            } finally {
-                _isImporting.value = false
-            }
+            try { repository.importFromUri(uri) }
+            catch (e: Exception) { _errorEvents.emit("Import failed: ${e.localizedMessage}") }
+            finally { _isImporting.value = false }
         }
     }
 
+    fun importFromFolder(treeUri: Uri) {
+        viewModelScope.launch {
+            _isImporting.value = true
+            try { repository.importFromFolder(treeUri) }
+            catch (e: Exception) { _errorEvents.emit("Folder import failed: ${e.localizedMessage}") }
+            finally { _isImporting.value = false }
+        }
+    }
+
+    /** Sets full library as ExoPlayer queue, starts at tapped song. */
     fun playSong(song: SongEntity) {
         val player = controller ?: run {
-            viewModelScope.launch { _errorEvents.emit("Media player not ready") }
+            viewModelScope.launch { _errorEvents.emit("Player not ready") }
             return
         }
-        val file = File(song.filePath)
-        if (!file.exists()) {
-            viewModelScope.launch { _errorEvents.emit("File not found: ${song.title}") }
+
+        val items = mutableListOf<MediaItem>()
+        var startIndex = 0
+
+        _songs.value.forEach { s ->
+            if (File(s.filePath).exists()) {
+                if (s.id == song.id) startIndex = items.size
+                items.add(
+                    MediaItem.Builder()
+                        .setMediaId(s.id)
+                        .setUri(Uri.fromFile(File(s.filePath)))
+                        .build()
+                )
+            }
+        }
+
+        if (items.isEmpty()) {
+            viewModelScope.launch { _errorEvents.emit("No playable files found") }
             return
         }
-        val mediaItem = MediaItem.Builder()
-            .setMediaId(song.id)
-            .setUri(Uri.fromFile(file))
-            .build()
-        player.setMediaItem(mediaItem)
+
+        player.setMediaItems(items, startIndex, 0L)
+        player.shuffleModeEnabled = _isShuffled.value
+        player.repeatMode = _repeatMode.value.toExo()
         player.prepare()
         player.play()
     }
 
-    fun seekTo(progress: Float) {
-        val player = controller ?: return
-        if (player.duration > 0) player.seekTo((progress * player.duration).toLong())
+    // Uses ExoPlayer's built-in prev logic:
+    // — position > 3s → restart current; position ≤ 3s → previous track
+    fun playPrevious() { controller?.seekToPrevious() }
+    fun playNext()     { controller?.seekToNext() }
+
+    fun toggleShuffle() {
+        _isShuffled.value = !_isShuffled.value
+        controller?.shuffleModeEnabled = _isShuffled.value
+    }
+
+    fun toggleRepeat() {
+        _repeatMode.value = when (_repeatMode.value) {
+            RepeatMode.NONE -> RepeatMode.ALL
+            RepeatMode.ALL  -> RepeatMode.ONE
+            RepeatMode.ONE  -> RepeatMode.NONE
+        }
+        controller?.repeatMode = _repeatMode.value.toExo()
+    }
+
+    fun seekTo(fraction: Float) {
+        val p = controller ?: return
+        if (p.duration > 0) p.seekTo((fraction * p.duration).toLong())
     }
 
     fun togglePlayback() {
-        val player = controller ?: return
-        if (player.isPlaying) player.pause()
-        else if (player.mediaItemCount > 0) player.play()
+        val p = controller ?: return
+        if (p.isPlaying) p.pause()
+        else if (p.mediaItemCount > 0) p.play()
     }
 
     fun deleteSong(song: SongEntity) {
         viewModelScope.launch { repository.deleteSong(song) }
+    }
+
+    private fun RepeatMode.toExo() = when (this) {
+        RepeatMode.NONE -> Player.REPEAT_MODE_OFF
+        RepeatMode.ONE  -> Player.REPEAT_MODE_ONE
+        RepeatMode.ALL  -> Player.REPEAT_MODE_ALL
     }
 
     override fun onCleared() {
