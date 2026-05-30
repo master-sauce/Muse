@@ -3,6 +3,7 @@ package com.Music
 import android.app.Application
 import android.content.ComponentName
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
@@ -32,10 +33,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
-    private val db = Room.databaseBuilder(
-        application,
-        AppDatabase::class.java, "muse-db"
-    ).build()
+
+    private val db = Room.databaseBuilder(application, AppDatabase::class.java, "muse-db").build()
 
     private val odesliService = Retrofit.Builder()
         .baseUrl("https://api.song.link/v1-alpha.1/")
@@ -46,16 +45,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(
         db.songDao(),
         odesliService,
-        DownloadManager(application)
+        DownloadManager(application),
+        application          // pass context
     )
 
-    val songs: StateFlow<List<SongEntity>> = repository.allSongs.let { flow ->
-        val state = MutableStateFlow<List<SongEntity>>(emptyList())
-        viewModelScope.launch {
-            flow.collect { state.value = it }
-        }
-        state.asStateFlow()
-    }
+    val songs: StateFlow<List<SongEntity>> = MutableStateFlow<List<SongEntity>>(emptyList()).also { state ->
+        viewModelScope.launch { repository.allSongs.collect { state.value = it } }
+    }.asStateFlow()
 
     private val _isDownloading = MutableStateFlow(false)
     val isDownloading = _isDownloading.asStateFlow()
@@ -63,11 +59,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _downloadProgress = MutableStateFlow(0f)
     val downloadProgress = _downloadProgress.asStateFlow()
 
+    private val _isImporting = MutableStateFlow(false)
+    val isImporting = _isImporting.asStateFlow()
+
     private val _errorEvents = MutableSharedFlow<String>()
     val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
-    private val controller: MediaController? get() = if (controllerFuture?.isDone == true) controllerFuture?.get() else null
+    private val controller: MediaController?
+        get() = if (controllerFuture?.isDone == true) controllerFuture?.get() else null
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying = _isPlaying.asStateFlow()
@@ -83,9 +83,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val sessionToken = SessionToken(application, ComponentName(application, PlaybackService::class.java))
         controllerFuture = MediaController.Builder(application, sessionToken).buildAsync()
-        controllerFuture?.addListener({
-            setupController()
-        }, MoreExecutors.directExecutor())
+        controllerFuture?.addListener({ setupController() }, MoreExecutors.directExecutor())
     }
 
     private fun setupController() {
@@ -97,8 +95,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val songId = mediaItem?.mediaId
-                _currentSong.value = songs.value.find { it.id == songId }
+                _currentSong.value = songs.value.find { it.id == mediaItem?.mediaId }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                viewModelScope.launch { _errorEvents.emit("Playback error: ${error.localizedMessage}") }
             }
         })
     }
@@ -107,29 +108,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
             while (true) {
-                controller?.let {
-                    if (it.duration > 0) {
-                        _playbackProgress.value = it.currentPosition.toFloat() / it.duration
-                    }
-                }
+                controller?.let { if (it.duration > 0) _playbackProgress.value = it.currentPosition.toFloat() / it.duration }
                 delay(500)
             }
         }
     }
 
-    private fun stopProgressUpdate() {
-        progressJob?.cancel()
-    }
+    private fun stopProgressUpdate() { progressJob?.cancel() }
 
     fun downloadSong(url: String) {
         viewModelScope.launch {
             _isDownloading.value = true
             try {
-                repository.downloadAndSave(url) { progress ->
-                    _downloadProgress.value = progress
-                }
+                repository.downloadAndSave(url) { progress -> _downloadProgress.value = progress }
             } catch (e: Exception) {
                 _errorEvents.emit("Download failed: ${e.localizedMessage}")
+                Log.e("MainViewModel", "Download error", e)
             } finally {
                 _isDownloading.value = false
                 _downloadProgress.value = 0f
@@ -137,11 +131,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // NEW: import local audio file
+    fun importLocalSong(uri: Uri) {
+        viewModelScope.launch {
+            _isImporting.value = true
+            try {
+                repository.importFromUri(uri)
+            } catch (e: Exception) {
+                _errorEvents.emit("Import failed: ${e.localizedMessage}")
+                Log.e("MainViewModel", "Import error", e)
+            } finally {
+                _isImporting.value = false
+            }
+        }
+    }
+
     fun playSong(song: SongEntity) {
-        val player = controller ?: return
+        val player = controller ?: run {
+            viewModelScope.launch { _errorEvents.emit("Media player not ready") }
+            return
+        }
+        val file = File(song.filePath)
+        if (!file.exists()) {
+            viewModelScope.launch { _errorEvents.emit("File not found: ${song.title}") }
+            return
+        }
         val mediaItem = MediaItem.Builder()
             .setMediaId(song.id)
-            .setUri(Uri.fromFile(File(song.filePath)))
+            .setUri(Uri.fromFile(file))
             .build()
         player.setMediaItem(mediaItem)
         player.prepare()
@@ -150,31 +167,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun seekTo(progress: Float) {
         val player = controller ?: return
-        if (player.duration > 0) {
-            player.seekTo((progress * player.duration).toLong())
-        }
+        if (player.duration > 0) player.seekTo((progress * player.duration).toLong())
     }
 
     fun togglePlayback() {
         val player = controller ?: return
-        if (player.isPlaying) {
-            player.pause()
-        } else {
-            player.play()
-        }
+        if (player.isPlaying) player.pause()
+        else if (player.mediaItemCount > 0) player.play()
     }
 
     fun deleteSong(song: SongEntity) {
-        viewModelScope.launch {
-            repository.deleteSong(song)
-        }
+        viewModelScope.launch { repository.deleteSong(song) }
     }
 
     override fun onCleared() {
         super.onCleared()
         progressJob?.cancel()
-        controllerFuture?.let {
-            MediaController.releaseFuture(it)
-        }
+        controllerFuture?.let { MediaController.releaseFuture(it) }
     }
 }
