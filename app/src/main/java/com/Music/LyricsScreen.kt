@@ -1,7 +1,5 @@
 package com.Music
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.Music.data.remote.LyricLine
 import com.Music.data.remote.LyricsState
 
 @Composable
@@ -36,10 +35,9 @@ fun LyricsScreen(viewModel: MainViewModel, onNavigateBack: () -> Unit) {
         )
     ) {
         Column(Modifier.fillMaxSize().systemBarsPadding()) {
-            // ── Top bar ──────────────────────────────────────────────────────
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment     = Alignment.CenterVertically,
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 IconButton(onClick = onNavigateBack) {
@@ -53,33 +51,21 @@ fun LyricsScreen(viewModel: MainViewModel, onNavigateBack: () -> Unit) {
                             fontWeight = FontWeight.SemiBold, maxLines = 1)
                     }
                 }
-                Spacer(Modifier.size(48.dp)) // balance
+                Spacer(Modifier.size(48.dp))
             }
 
             HorizontalDivider(Modifier.padding(horizontal = 24.dp))
             Spacer(Modifier.height(8.dp))
 
-            // ── Lyrics content ───────────────────────────────────────────────
             when (val state = lyricsState) {
-                is LyricsState.Idle ->
-                    LyricsPlaceholder("Play a song to see lyrics")
-
-                is LyricsState.Loading ->
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-
-                is LyricsState.NotFound ->
-                    LyricsPlaceholder("No lyrics found for this song")
-
-                is LyricsState.Instrumental ->
-                    LyricsPlaceholder("🎵  This track is instrumental")
-
-                is LyricsState.Plain ->
-                    PlainLyrics(text = state.text)
-
-                is LyricsState.Synced ->
-                    SyncedLyrics(lines = state.lines, positionMs = position)
+                is LyricsState.Idle         -> LyricsPlaceholder("Play a song to see lyrics")
+                is LyricsState.Loading      -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
+                is LyricsState.NotFound     -> LyricsPlaceholder("No lyrics found for this song")
+                is LyricsState.Instrumental -> LyricsPlaceholder("🎵  This track is instrumental")
+                is LyricsState.Plain        -> PlainLyrics(state.text)
+                is LyricsState.Synced       -> SyncedLyrics(state.lines, position)
             }
         }
     }
@@ -89,8 +75,7 @@ fun LyricsScreen(viewModel: MainViewModel, onNavigateBack: () -> Unit) {
 private fun LyricsPlaceholder(message: String) {
     Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
         Text(message, style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center)
+            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
     }
 }
 
@@ -100,26 +85,19 @@ private fun PlainLyrics(text: String) {
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 28.dp, vertical = 16.dp)
     ) {
-        item {
-            Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 28.sp)
-        }
+        item { Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 28.sp) }
     }
 }
 
 @Composable
-private fun SyncedLyrics(
-    lines: List<com.Music.data.remote.LyricLine>,
-    positionMs: Long
-) {
+private fun SyncedLyrics(lines: List<LyricLine>, positionMs: Long) {
     val listState    = rememberLazyListState()
     val currentIndex by remember(positionMs, lines) {
         derivedStateOf { lines.indexOfLast { it.timeMs <= positionMs }.coerceAtLeast(0) }
     }
 
     LaunchedEffect(currentIndex) {
-        if (lines.isNotEmpty()) {
-            listState.animateScrollToItem(maxOf(0, currentIndex - 2))
-        }
+        if (lines.isNotEmpty()) listState.animateScrollToItem(maxOf(0, currentIndex - 2))
     }
 
     LazyColumn(
@@ -144,74 +122,14 @@ private fun SyncedLyrics(
                 modifier   = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 6.dp)
-                    .then(if (isCurrent) Modifier
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                            RoundedCornerShape(8.dp))
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                    else Modifier)
+                    .then(
+                        if (isCurrent) Modifier
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                        else Modifier
+                    )
             )
-        }
-    }
-}
-@Composable
-private fun SyncedLyricsDisplay(
-    lines: List<com.Music.data.remote.LyricLine>,
-    positionMs: Long
-) {
-    val listState    = rememberLazyListState()
-    val currentIndex by remember(positionMs, lines) {
-        derivedStateOf { lines.indexOfLast { it.timeMs <= positionMs }.coerceAtLeast(0) }
-    }
-
-    LaunchedEffect(currentIndex) {
-        if (lines.isNotEmpty()) {
-            listState.animateScrollToItem(
-                index       = maxOf(0, currentIndex - 2),
-                scrollOffset = 0
-            )
-        }
-    }
-
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 28.dp, vertical = 80.dp)
-    ) {
-        itemsIndexed(lines) { index, line ->
-            if (line.text.isBlank()) {
-                Spacer(Modifier.height(12.dp))
-                return@itemsIndexed
-            }
-            val isCurrent  = index == currentIndex
-            val isPast     = index < currentIndex
-            AnimatedContent(
-                targetState = isCurrent,
-                transitionSpec = { fadeIn(tween(300)).togetherWith(fadeOut(tween(200))) },
-                label = "lyricLine$index"
-            ) { current ->
-                Text(
-                    text      = line.text,
-                    style     = MaterialTheme.typography.bodyLarge,
-                    fontSize  = if (current) 22.sp else 18.sp,
-                    fontWeight = if (current) FontWeight.Bold else FontWeight.Normal,
-                    color     = when {
-                        current -> MaterialTheme.colorScheme.primary
-                        isPast  -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                        else    -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
-                    },
-                    lineHeight = 32.sp,
-                    modifier  = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp)
-                        .then(
-                            if (current) Modifier.background(
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                                RoundedCornerShape(8.dp)
-                            ).padding(horizontal = 8.dp, vertical = 2.dp)
-                            else Modifier
-                        )
-                )
-            }
         }
     }
 }

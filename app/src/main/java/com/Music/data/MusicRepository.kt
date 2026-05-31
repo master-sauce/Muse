@@ -69,16 +69,33 @@ class MusicRepository(
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
-            val title  = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
-                ?: uri.lastPathSegment?.substringBeforeLast(".") ?: "Unknown Title"
-            val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: "Unknown Artist"
-            val durMs  = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
-            val ext    = uri.lastPathSegment?.substringAfterLast(".")?.takeIf { it.length <= 5 } ?: "mp3"
+
+            // Try embedded metadata title first
+            val embeddedTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
+                ?.takeIf { it.isNotBlank() }
+
+            // SAF URIs: lastPathSegment looks like "primary:Music/Artist - Song.mp3"
+            // Strip everything before last '/' then before last ':' then remove extension
+            val rawSegment = uri.lastPathSegment ?: ""
+            val cleanFileName = rawSegment
+                .substringAfterLast("/")   // "Artist - Song.mp3"
+                .substringAfterLast(":")   // handles "primary:filename.mp3" with no slash
+                .substringBeforeLast(".")  // "Artist - Song"
+                .trim()
+
+            val title  = embeddedTitle
+                ?: cleanFileName.takeIf { it.isNotBlank() }
+                ?: "Unknown Title"
+            val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
+                ?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
+            val durMs  = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull() ?: 0L
+            val ext    = rawSegment.substringAfterLast(".").takeIf { it.length in 1..5 } ?: "mp3"
 
             val destDir  = File(context.getExternalFilesDir(null), "imported").also { it.mkdirs() }
             val destFile = File(destDir, "${System.currentTimeMillis()}.$ext")
             context.contentResolver.openInputStream(uri)?.use { it.copyTo(destFile.outputStream()) }
-                ?: throw Exception("Cannot read file")
+                ?: throw Exception("Cannot open file")
 
             songDao.insertSong(SongEntity(
                 id           = "local_${destFile.name}",
