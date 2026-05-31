@@ -161,7 +161,8 @@ fun LibraryScreen(
                         onAddToPlaylist  = { songId, plId -> viewModel.addSongToPlaylist(plId, songId) },
                         onStartDrag      = { viewModel.startDrag() },
                         onMove           = { from, to -> viewModel.moveSong(from, to) },
-                        onEndDrag        = { viewModel.endDrag() }
+                        onEndDrag        = { viewModel.endDrag() },
+                        onOpenAdd        = { showAdd = true }   // ← add this
                     )
                     else -> PlaylistsTab(
                         playlists        = playlists,
@@ -216,12 +217,13 @@ private fun SongsTab(
     onAddToPlaylist: (songId: String, playlistId: Long) -> Unit,
     onStartDrag: () -> Unit,
     onMove: (Int, Int) -> Unit,
-    onEndDrag: () -> Unit
+    onEndDrag: () -> Unit,
+    onOpenAdd: () -> Unit   // ← add this
 ) {
     val context = LocalContext.current
     val haptic  = LocalHapticFeedback.current
 
-    if (songs.isEmpty()) { EmptyLibrary {}; return }
+    if (songs.isEmpty()) { EmptyLibrary(onOpenAdd); return }   
 
     val lazyListState    = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
