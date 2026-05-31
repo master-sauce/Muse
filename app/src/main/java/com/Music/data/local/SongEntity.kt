@@ -11,5 +11,6 @@ data class SongEntity(
     val filePath: String,
     val duration: Long,
     val thumbnailUrl: String?,
-    val sourceUrl: String
+    val sourceUrl: String,
+    val sortOrder: Int = 0
 )

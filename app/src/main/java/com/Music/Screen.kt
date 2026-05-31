@@ -1,6 +1,11 @@
 package com.Music
 
 sealed class Screen(val route: String) {
-    data object Library : Screen("library")
-    data object Player  : Screen("player")
+    object Library       : Screen("library")
+    object Player        : Screen("player")
+    object Lyrics        : Screen("lyrics")
+    object PlaylistDetail : Screen("playlist_detail/{playlistId}") {
+        const val ARG = "playlistId"
+        fun route(id: Long) = "playlist_detail/$id"
+    }
 }
