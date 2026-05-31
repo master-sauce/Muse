@@ -59,9 +59,9 @@ fun LibraryScreen(
     val inSelection   = selectedIds.isNotEmpty()
     val playlists     by viewModel.playlists.collectAsState()
 
-    var selectedTab           by remember { mutableIntStateOf(0) }
-    var showAdd               by remember { mutableStateOf(false) }
-    var showNewPlaylistDialog  by remember { mutableStateOf(false) }
+    var selectedTab          by remember { mutableIntStateOf(0) }
+    var showAdd              by remember { mutableStateOf(false) }
+    var showNewPlaylistDialog by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -73,8 +73,6 @@ fun LibraryScreen(
 
     Scaffold(
         topBar = {
-            // FIX: plain if/else — AnimatedContent was preventing the state write from
-            // reaching the outer showAdd variable on some Compose versions.
             if (inSelection) {
                 TopAppBar(
                     navigationIcon = {
@@ -90,16 +88,21 @@ fun LibraryScreen(
                             Icon(Icons.Default.SelectAll, "Select all")
                         }
                         IconButton(onClick = { viewModel.deleteSelected() }) {
-                            Icon(Icons.Default.DeleteSweep, "Delete selected",
-                                tint = MaterialTheme.colorScheme.error)
+                            Icon(
+                                Icons.Default.DeleteSweep, "Delete selected",
+                                tint = MaterialTheme.colorScheme.error
+                            )
                         }
                     }
                 )
             } else {
                 CenterAlignedTopAppBar(
                     title = {
-                        Text("Muse", fontWeight = FontWeight.ExtraBold,
-                            style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            "Muse",
+                            fontWeight = FontWeight.ExtraBold,
+                            style = MaterialTheme.typography.headlineMedium
+                        )
                     },
                     actions = {
                         IconButton(onClick = { showAdd = true }) {
@@ -116,13 +119,12 @@ fun LibraryScreen(
                 exit    = slideOutVertically { it } + fadeOut()
             ) {
                 currentSong?.let { song ->
-                    // navigationBarsPadding() ensures mini player sits above Android nav buttons
                     Column(Modifier.navigationBarsPadding()) {
                         MiniPlayer(
-                            song     = song,
+                            song      = song,
                             isPlaying = isPlaying,
-                            onToggle = { viewModel.togglePlayback() },
-                            onTap    = onNavigateToPlayer
+                            onToggle  = { viewModel.togglePlayback() },
+                            onTap     = onNavigateToPlayer
                         )
                     }
                 }
@@ -131,38 +133,44 @@ fun LibraryScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = selectedTab) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                    text = { Text("Songs") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                    text = { Text("Playlists") })
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick  = { selectedTab = 0 },
+                    text     = { Text("Songs") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick  = { selectedTab = 1 },
+                    text     = { Text("Playlists") }
+                )
             }
 
             AnimatedContent(
                 targetState = selectedTab,
                 transitionSpec = {
                     val dir = if (targetState > initialState) 1 else -1
-                    (fadeIn(tween(220)) + slideInHorizontally(tween(280)) { dir * it / 3 })
-                        .togetherWith(fadeOut(tween(160)) + slideOutHorizontally(tween(230)) { -dir * it / 3 })
+                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { dir * it / 3 })
+                        .togetherWith(fadeOut(tween(130)) + slideOutHorizontally(tween(180)) { -dir * it / 3 })
                 },
                 label = "tabs"
             ) { tab ->
                 when (tab) {
                     0 -> SongsTab(
-                        songs            = songs,
-                        currentSong      = currentSong,
-                        isPlaying        = isPlaying,
-                        selectedIds      = selectedIds,
-                        inSelection      = inSelection,
-                        playlists        = playlists.map { it.playlist },
-                        onPlay           = { song -> viewModel.playSong(song); onNavigateToPlayer() },
-                        onLongPress      = { id -> viewModel.toggleSelect(id) },
-                        onToggleSelect   = { id -> viewModel.toggleSelect(id) },
-                        onDelete         = { song -> viewModel.deleteSong(song) },
-                        onAddToPlaylist  = { songId, plId -> viewModel.addSongToPlaylist(plId, songId) },
-                        onStartDrag      = { viewModel.startDrag() },
-                        onMove           = { from, to -> viewModel.moveSong(from, to) },
-                        onEndDrag        = { viewModel.endDrag() },
-                        onOpenAdd        = { showAdd = true }   // ← add this
+                        songs           = songs,
+                        currentSong     = currentSong,
+                        isPlaying       = isPlaying,
+                        selectedIds     = selectedIds,
+                        inSelection     = inSelection,
+                        playlists       = playlists.map { it.playlist },
+                        onPlay          = { song -> viewModel.playSong(song); onNavigateToPlayer() },
+                        onLongPress     = { id -> viewModel.toggleSelect(id) },
+                        onToggleSelect  = { id -> viewModel.toggleSelect(id) },
+                        onDelete        = { song -> viewModel.deleteSong(song) },
+                        onAddToPlaylist = { songId, plId -> viewModel.addSongToPlaylist(plId, songId) },
+                        onStartDrag     = { viewModel.startDrag() },
+                        onMove          = { from, to -> viewModel.moveSong(from, to) },
+                        onEndDrag       = { viewModel.endDrag() },
+                        onOpenAdd       = { showAdd = true }
                     )
                     else -> PlaylistsTab(
                         playlists        = playlists,
@@ -184,7 +192,15 @@ fun LibraryScreen(
                     downloadProgress = dlProgress,
                     isImporting      = isImporting,
                     onDownload       = { url -> viewModel.downloadSong(url); showAdd = false },
-                    onPickFile       = { pickFile.launch(arrayOf("audio/*")); showAdd = false },
+                    onPickFile       = {
+                        pickFile.launch(arrayOf(
+                            "audio/*",
+                            "video/mp4",
+                            "video/x-matroska",
+                            "video/webm"
+                        ))
+                        showAdd = false
+                    },
                     onPickFolder     = { pickFolder.launch(null); showAdd = false }
                 )
             }
@@ -218,7 +234,7 @@ private fun SongsTab(
     onStartDrag: () -> Unit,
     onMove: (Int, Int) -> Unit,
     onEndDrag: () -> Unit,
-    onOpenAdd: () -> Unit   // ← add this
+    onOpenAdd: () -> Unit
 ) {
     val context = LocalContext.current
     val haptic  = LocalHapticFeedback.current
@@ -231,12 +247,11 @@ private fun SongsTab(
     }
 
     LazyColumn(
-        state           = lazyListState,
-        modifier        = Modifier.fillMaxSize(),
-        contentPadding  = PaddingValues(bottom = 8.dp)
+        state          = lazyListState,
+        modifier       = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 8.dp)
     ) {
         items(songs, key = { it.id }) { song ->
-            // ReorderableItem provides ReorderableItemScope for draggableHandle
             ReorderableItem(reorderableState, key = song.id) { isDragging ->
                 SongListItem(
                     song               = song,
@@ -245,7 +260,6 @@ private fun SongsTab(
                     isSelected         = song.id in selectedIds,
                     inSelection        = inSelection,
                     isDragging         = isDragging,
-                    // draggableHandle must be built inside ReorderableItemScope
                     dragHandleModifier = Modifier.draggableHandle(
                         enabled       = !inSelection,
                         onDragStarted = { onStartDrag() },
@@ -323,17 +337,21 @@ fun SongListItem(
             ),
         headlineContent = {
             Text(
-                song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                song.title,
+                maxLines   = 1,
+                overflow   = TextOverflow.Ellipsis,
                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary
+                color      = if (isCurrent) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurface
             )
         },
         supportingContent = {
             Text(
-                song.artist, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                song.artist,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style    = MaterialTheme.typography.bodySmall,
+                color    = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
         leadingContent = {
@@ -348,21 +366,29 @@ fun SongListItem(
                     contentAlignment = Alignment.Center
                 ) {
                     if (song.thumbnailUrl != null) {
-                        AsyncImage(model = song.thumbnailUrl, contentDescription = null,
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        AsyncImage(
+                            model              = song.thumbnailUrl,
+                            contentDescription = null,
+                            modifier           = Modifier.fillMaxSize(),
+                            contentScale       = ContentScale.Crop
+                        )
                     } else {
-                        Icon(Icons.Default.MusicNote, null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Icon(
+                            Icons.Default.MusicNote, null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     if (isCurrent) {
                         Box(
-                            Modifier.fillMaxSize()
+                            Modifier
+                                .fillMaxSize()
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                null, tint = MaterialTheme.colorScheme.onPrimary,
+                                null,
+                                tint     = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -370,37 +396,40 @@ fun SongListItem(
                 }
             }
         },
-        // FIX: no standalone red trash IconButton here — delete lives only in the dropdown
         trailingContent = {
             if (!inSelection) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment     = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     Box {
                         IconButton(onClick = { showMenu = true }) {
-                            Icon(Icons.Default.MoreVert, "More options",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Icon(
+                                Icons.Default.MoreVert, "More options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         DropdownMenu(
-                            expanded = showMenu,
+                            expanded         = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Add to Playlist") },
+                                text        = { Text("Add to Playlist") },
                                 leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
-                                onClick = { showMenu = false; showAddToPlaylist = true }
+                                onClick     = { showMenu = false; showAddToPlaylist = true }
                             )
                             DropdownMenuItem(
-                                text = { Text("Share") },
+                                text        = { Text("Share") },
                                 leadingIcon = { Icon(Icons.Default.Share, null) },
-                                onClick = { showMenu = false; onShare() }
+                                onClick     = { showMenu = false; onShare() }
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                leadingIcon = { Icon(Icons.Default.Delete, null,
-                                    tint = MaterialTheme.colorScheme.error) },
+                                text        = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Delete, null,
+                                        tint = MaterialTheme.colorScheme.error)
+                                },
                                 onClick = { showMenu = false; onDelete() }
                             )
                         }
@@ -408,8 +437,8 @@ fun SongListItem(
                     Icon(
                         Icons.Default.DragHandle,
                         contentDescription = "Drag to reorder",
-                        modifier = dragHandleModifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                        modifier           = dragHandleModifier.size(20.dp),
+                        tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -442,8 +471,10 @@ private fun PlaylistsTab(
 ) {
     if (playlists.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Icon(Icons.Default.QueueMusic, null, Modifier.size(64.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
                 Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
@@ -468,12 +499,14 @@ private fun PlaylistsTab(
             }
         }
         items(playlists, key = { it.playlist.id }) { pw ->
-            PlaylistItem(pw, onClick = { onPlaylistClick(pw.playlist) },
-                onDelete = { onDeletePlaylist(pw.playlist) })
+            PlaylistItem(
+                pw,
+                onClick  = { onPlaylistClick(pw.playlist) },
+                onDelete = { onDeletePlaylist(pw.playlist) }
+            )
         }
     }
 }
-
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -485,13 +518,23 @@ private fun PlaylistItem(
     var showConfirm by remember { mutableStateOf(false) }
     ListItem(
         modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = {}),
-        headlineContent = { Text(playlistWithSongs.playlist.name, fontWeight = FontWeight.SemiBold) },
-        supportingContent = { Text("${playlistWithSongs.songs.size} songs",
-            color = MaterialTheme.colorScheme.onSurfaceVariant) },
+        headlineContent = {
+            Text(playlistWithSongs.playlist.name, fontWeight = FontWeight.SemiBold)
+        },
+        supportingContent = {
+            Text(
+                "${playlistWithSongs.songs.size} songs",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
         leadingContent = {
-            Box(Modifier.size(52.dp).clip(RoundedCornerShape(10.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(Icons.Default.QueueMusic, null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
@@ -506,13 +549,17 @@ private fun PlaylistItem(
         AlertDialog(
             onDismissRequest = { showConfirm = false },
             title   = { Text("Delete playlist?") },
-            text    = { Text("\"${playlistWithSongs.playlist.name}\" will be removed. Songs stay in library.") },
+            text    = {
+                Text("\"${playlistWithSongs.playlist.name}\" will be removed. Songs stay in library.")
+            },
             confirmButton = {
                 TextButton(onClick = { onDelete(); showConfirm = false }) {
                     Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) { Text("Cancel") }
+            }
         )
     }
 }
@@ -526,13 +573,19 @@ fun NewPlaylistDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
         onDismissRequest = onDismiss,
         title   = { Text("New Playlist") },
         text    = {
-            OutlinedTextField(value = name, onValueChange = { name = it },
-                label = { Text("Playlist name") }, singleLine = true,
-                shape = RoundedCornerShape(12.dp))
+            OutlinedTextField(
+                value         = name,
+                onValueChange = { name = it },
+                label         = { Text("Playlist name") },
+                singleLine    = true,
+                shape         = RoundedCornerShape(12.dp)
+            )
         },
         confirmButton = {
-            TextButton(onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
-                enabled = name.isNotBlank()) { Text("Create") }
+            TextButton(
+                onClick  = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled  = name.isNotBlank()
+            ) { Text("Create") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -553,8 +606,10 @@ fun AddToPlaylistDialog(
             } else {
                 LazyColumn {
                     itemsIndexed(playlists) { _, pl ->
-                        TextButton(onClick = { onSelect(pl.id) },
-                            modifier = Modifier.fillMaxWidth()) {
+                        TextButton(
+                            onClick  = { onSelect(pl.id) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Icon(Icons.Default.QueueMusic, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(pl.name, modifier = Modifier.weight(1f))
@@ -570,7 +625,6 @@ fun AddToPlaylistDialog(
 
 // ─── Mini player ──────────────────────────────────────────────────────────────
 
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MiniPlayer(
@@ -580,30 +634,53 @@ fun MiniPlayer(
     onTap: () -> Unit
 ) {
     Card(
-        modifier  = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)
+        modifier  = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .combinedClickable(onClick = onTap, onLongClick = {}),
         shape     = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(8.dp),
-        colors    = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        colors    = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
     ) {
-        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surface),
-                contentAlignment = Alignment.Center) {
+        Row(
+            Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center
+            ) {
                 if (song.thumbnailUrl != null) {
-                    AsyncImage(model = song.thumbnailUrl, contentDescription = null,
-                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    AsyncImage(
+                        model              = song.thumbnailUrl,
+                        contentDescription = null,
+                        modifier           = Modifier.fillMaxSize(),
+                        contentScale       = ContentScale.Crop
+                    )
                 } else {
                     Icon(Icons.Default.MusicNote, null)
                 }
             }
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                Text(song.title, style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis)
-                Text(song.artist, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    song.title,
+                    style      = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines   = 1,
+                    overflow   = TextOverflow.Ellipsis
+                )
+                Text(
+                    song.artist,
+                    style    = MaterialTheme.typography.bodySmall,
+                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             IconButton(onClick = onToggle) {
                 AnimatedContent(
@@ -614,8 +691,11 @@ fun MiniPlayer(
                     },
                     label = "miniPP"
                 ) { playing ->
-                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (playing) "Pause" else "Play", Modifier.size(28.dp))
+                    Icon(
+                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (playing) "Pause" else "Play",
+                        Modifier.size(28.dp)
+                    )
                 }
             }
         }
@@ -627,14 +707,22 @@ fun MiniPlayer(
 @Composable
 fun EmptyLibrary(onAdd: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             Icon(Icons.Default.LibraryMusic, null, Modifier.size(72.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
-            Text("Library is empty", style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold)
-            Text("Add songs to get started", style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Library is empty",
+                style      = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "Add songs to get started",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(Modifier.height(8.dp))
             FilledTonalButton(onClick = onAdd) {
                 Icon(Icons.Default.Add, null, Modifier.size(18.dp))
@@ -660,10 +748,17 @@ fun AddMusicSheet(
     var urlText by remember { mutableStateOf("") }
 
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 48.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 48.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("Add Music", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Text(
+            "Add Music",
+            style      = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold
+        )
         Spacer(Modifier.height(16.dp))
         TabRow(selectedTabIndex = tab) {
             listOf("Download", "File", "Folder").forEachIndexed { i, label ->
@@ -676,21 +771,24 @@ fun AddMusicSheet(
                 targetState = tab,
                 transitionSpec = {
                     val d = if (targetState > initialState) 1 else -1
-                    (fadeIn(tween(200)) + slideInHorizontally(tween(280)) { d * it / 3 })
-                        .togetherWith(fadeOut(tween(150)) + slideOutHorizontally(tween(230)) { -d * it / 3 })
+                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { d * it / 3 })
+                        .togetherWith(fadeOut(tween(130)) + slideOutHorizontally(tween(180)) { -d * it / 3 })
                 },
                 label = "addTab"
             ) { t ->
                 when (t) {
-                    0 -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    0 -> Column(
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         OutlinedTextField(
-                            value          = urlText,
-                            onValueChange  = { urlText = it },
-                            modifier       = Modifier.fillMaxWidth(),
-                            placeholder    = { Text("YouTube, Spotify, or Apple Music URL") },
-                            singleLine     = true,
-                            shape          = RoundedCornerShape(12.dp),
-                            leadingIcon    = { Icon(Icons.Default.Link, null) }
+                            value         = urlText,
+                            onValueChange = { urlText = it },
+                            modifier      = Modifier.fillMaxWidth(),
+                            placeholder   = { Text("YouTube, Spotify, or Apple Music URL") },
+                            singleLine    = true,
+                            shape         = RoundedCornerShape(12.dp),
+                            leadingIcon   = { Icon(Icons.Default.Link, null) }
                         )
                         Button(
                             onClick  = { onDownload(urlText); urlText = "" },
@@ -699,8 +797,11 @@ fun AddMusicSheet(
                             shape    = RoundedCornerShape(12.dp)
                         ) {
                             if (isDownloading) {
-                                CircularProgressIndicator(Modifier.size(18.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    color       = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
                                 Spacer(Modifier.width(8.dp))
                                 Text("Downloading ${downloadProgress.toInt()}%")
                             } else {
@@ -712,19 +813,28 @@ fun AddMusicSheet(
                         AnimatedVisibility(isDownloading) {
                             LinearProgressIndicator(
                                 progress = { downloadProgress / 100f },
-                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp))
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(4.dp))
                             )
                         }
                     }
-                    1 -> Column(Modifier.fillMaxWidth(),
+
+                    1 -> Column(
+                        Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         Icon(Icons.Default.AudioFile, null, Modifier.size(52.dp),
                             tint = MaterialTheme.colorScheme.primary)
-                        Text("Pick audio files from your device", textAlign = TextAlign.Center)
-                        Text("Supports MP3, FLAC, M4A, OGG, WAV and more",
-                            style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Pick audio or video files from your device",
+                            textAlign = TextAlign.Center)
+                        Text(
+                            "Supports MP3, FLAC, M4A, OGG, WAV, MP4 and more",
+                            style     = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                            color     = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Button(
                             onClick  = onPickFile,
                             enabled  = !isImporting,
@@ -732,8 +842,11 @@ fun AddMusicSheet(
                             shape    = RoundedCornerShape(12.dp)
                         ) {
                             if (isImporting) {
-                                CircularProgressIndicator(Modifier.size(18.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    color       = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
                                 Spacer(Modifier.width(8.dp)); Text("Importing...")
                             } else {
                                 Icon(Icons.Default.FolderOpen, null)
@@ -741,15 +854,21 @@ fun AddMusicSheet(
                             }
                         }
                     }
-                    else -> Column(Modifier.fillMaxWidth(),
+
+                    else -> Column(
+                        Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         Icon(Icons.Default.Folder, null, Modifier.size(52.dp),
                             tint = MaterialTheme.colorScheme.primary)
                         Text("Import all audio from a folder", textAlign = TextAlign.Center)
-                        Text("Every audio file in the folder gets added to your library",
-                            style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Every audio file in the folder gets added to your library",
+                            style     = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                            color     = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Button(
                             onClick  = onPickFolder,
                             enabled  = !isImporting,
@@ -757,8 +876,11 @@ fun AddMusicSheet(
                             shape    = RoundedCornerShape(12.dp)
                         ) {
                             if (isImporting) {
-                                CircularProgressIndicator(Modifier.size(18.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                                CircularProgressIndicator(
+                                    Modifier.size(18.dp),
+                                    color       = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
                                 Spacer(Modifier.width(8.dp)); Text("Scanning folder...")
                             } else {
                                 Icon(Icons.Default.CreateNewFolder, null)

@@ -8,9 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
-import androidx.compose.animation.core.EaseIn
-import androidx.compose.animation.core.EaseOut
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.LayoutDirection
@@ -29,11 +27,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100)
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 100
+            )
         }
         setContent {
             MuseTheme {
-                // Force LTR for entire app
                 androidx.compose.runtime.CompositionLocalProvider(
                     androidx.compose.ui.platform.LocalLayoutDirection provides LayoutDirection.Ltr
                 ) {
@@ -57,22 +56,36 @@ fun MusicApp() {
     }
 
     NavHost(navController = navController, startDestination = Screen.Library.route) {
+
         composable(
             Screen.Library.route,
-            enterTransition = { fadeIn(tween(300)) },
-            exitTransition  = { ExitTransition.None }
+            enterTransition    = { fadeIn(tween(200)) },
+            exitTransition     = { ExitTransition.None },
+            popEnterTransition = { fadeIn(tween(200)) }
         ) {
             LibraryScreen(
-                viewModel = viewModel,
+                viewModel            = viewModel,
                 onNavigateToPlayer   = { navController.navigate(Screen.Player.route) },
                 onNavigateToPlaylist = { id -> navController.navigate(Screen.PlaylistDetail.route(id)) }
             )
         }
+
         composable(
             Screen.Player.route,
-            enterTransition    = { slideInVertically(tween(420, easing = EaseOut)) { it } },
-            exitTransition     = { ExitTransition.None },
-            popExitTransition  = { slideOutVertically(tween(350, easing = EaseIn)) { it } }
+            // snappy spring slide-up — feels natural, no rubber-band bounce
+            enterTransition = {
+                slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness    = Spring.StiffnessMedium
+                    )
+                ) { it / 2 } + fadeIn(tween(180))
+            },
+            exitTransition    = { ExitTransition.None },
+            popExitTransition = {
+                slideOutVertically(tween(220, easing = FastOutLinearInEasing)) { it / 2 } +
+                        fadeOut(tween(180))
+            }
         ) {
             PlayerScreen(
                 viewModel          = viewModel,
@@ -80,24 +93,40 @@ fun MusicApp() {
                 onNavigateToLyrics = { navController.navigate(Screen.Lyrics.route) }
             )
         }
+
         composable(
             Screen.Lyrics.route,
-            enterTransition   = { slideInVertically(tween(380, easing = EaseOut)) { it } },
-            popExitTransition = { slideOutVertically(tween(320, easing = EaseIn)) { it } }
+            enterTransition = {
+                slideInVertically(
+                    spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMedium)
+                ) { it / 2 } + fadeIn(tween(180))
+            },
+            popExitTransition = {
+                slideOutVertically(tween(200, easing = FastOutLinearInEasing)) { it / 2 } +
+                        fadeOut(tween(160))
+            }
         ) {
             LyricsScreen(viewModel = viewModel, onNavigateBack = { navController.popBackStack() })
         }
+
         composable(
             Screen.PlaylistDetail.route,
-            arguments      = listOf(navArgument(Screen.PlaylistDetail.ARG) { type = NavType.LongType }),
-            enterTransition = { slideInHorizontally(tween(380)) { it } },
-            popExitTransition = { slideOutHorizontally(tween(320)) { it } }
+            arguments         = listOf(navArgument(Screen.PlaylistDetail.ARG) { type = NavType.LongType }),
+            enterTransition   = {
+                slideInHorizontally(spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMedium)) { it / 2 } +
+                        fadeIn(tween(180))
+            },
+            popExitTransition = {
+                slideOutHorizontally(tween(220, easing = FastOutLinearInEasing)) { it / 2 } +
+                        fadeOut(tween(160))
+            }
         ) { back ->
             val playlistId = back.arguments?.getLong(Screen.PlaylistDetail.ARG) ?: return@composable
             PlaylistDetailScreen(
-                playlistId = playlistId,
-                viewModel  = viewModel,
-                onBack     = { navController.popBackStack() }
+                playlistId         = playlistId,
+                viewModel          = viewModel,
+                onBack             = { navController.popBackStack() },
+                onNavigateToPlayer = { navController.navigate(Screen.Player.route) }  // ← wired
             )
         }
     }

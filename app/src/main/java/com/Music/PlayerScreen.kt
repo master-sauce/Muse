@@ -1,5 +1,6 @@
 package com.Music
 
+import android.view.ViewGroup
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -20,7 +21,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.Player
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
+import com.Music.data.local.isVideo
+import com.Music.data.remote.LyricsState
 
 @Composable
 fun PlayerScreen(
@@ -36,15 +43,20 @@ fun PlayerScreen(
     val isShuffled  by viewModel.isShuffled.collectAsState()
     val repeatMode  by viewModel.repeatMode.collectAsState()
     val lyricsState by viewModel.lyrics.collectAsState()
+    val exoPlayer   by viewModel.exoPlayer.collectAsState()
+
+    val isVideoFile = currentSong?.isVideo() == true
+    // auto-reset to song mode when track changes to audio-only
+    var videoMode by remember(currentSong?.id) { mutableStateOf(false) }
 
     val albumScale by animateFloatAsState(
-        targetValue    = if (isPlaying) 1f else 0.82f,
-        animationSpec  = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow),
-        label          = "albumScale"
+        targetValue   = if (isPlaying) 1f else 0.82f,
+        animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow),
+        label         = "albumScale"
     )
     val albumShadow by animateDpAsState(
         targetValue   = if (isPlaying) 32.dp else 6.dp,
-        animationSpec = tween(600),
+        animationSpec = tween(500),
         label         = "albumShadow"
     )
 
@@ -72,39 +84,85 @@ fun PlayerScreen(
                 }
                 Text("Now Playing", style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-                // Lyrics button — tinted when lyrics are available
                 IconButton(onClick = onNavigateToLyrics) {
                     Icon(Icons.Default.Lyrics, "Lyrics",
                         tint = when (lyricsState) {
-                            is com.Music.data.remote.LyricsState.Synced,
-                            is com.Music.data.remote.LyricsState.Plain ->
+                            is LyricsState.Synced, is LyricsState.Plain ->
                                 MaterialTheme.colorScheme.primary
                             else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         })
                 }
             }
 
+            // ── Song / Video toggle — only when file is video ────────────────
+            AnimatedVisibility(visible = isVideoFile) {
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    FilterChip(
+                        selected    = !videoMode,
+                        onClick     = { videoMode = false },
+                        label       = { Text("Song") },
+                        leadingIcon = { Icon(Icons.Default.MusicNote, null, Modifier.size(16.dp)) },
+                        modifier    = Modifier.padding(end = 10.dp)
+                    )
+                    FilterChip(
+                        selected    = videoMode,
+                        onClick     = { videoMode = true },
+                        label       = { Text("Video") },
+                        leadingIcon = { Icon(Icons.Default.Videocam, null, Modifier.size(16.dp)) }
+                    )
+                }
+            }
+
             Spacer(Modifier.weight(1f))
 
-            // ── Album art ────────────────────────────────────────────────────
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(1f)
-                    .scale(albumScale)
-                    .shadow(albumShadow, RoundedCornerShape(24.dp),
-                        ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                        spotColor    = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                if (currentSong?.thumbnailUrl != null) {
-                    AsyncImage(model = currentSong!!.thumbnailUrl, contentDescription = "Album art",
-                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            // ── Album art or video view ───────────────────────────────────────
+            AnimatedContent(
+                targetState = videoMode && isVideoFile,
+                transitionSpec = {
+                    (fadeIn(tween(220)) + scaleIn(tween(220), initialScale = 0.96f))
+                        .togetherWith(fadeOut(tween(160)) + scaleOut(tween(160), targetScale = 0.96f))
+                },
+                label = "artOrVideo"
+            ) { showVideo ->
+                if (showVideo) {
+                    VideoPlayerView(
+                        player   = exoPlayer,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .shadow(16.dp, RoundedCornerShape(20.dp))
+                    )
                 } else {
-                    Icon(Icons.Default.MusicNote, null, Modifier.size(96.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f)
+                            .scale(albumScale)
+                            .shadow(
+                                albumShadow, RoundedCornerShape(24.dp),
+                                ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                spotColor    = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                            )
+                            .clip(RoundedCornerShape(24.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (currentSong?.thumbnailUrl != null) {
+                            AsyncImage(
+                                model           = currentSong!!.thumbnailUrl,
+                                contentDescription = "Album art",
+                                modifier        = Modifier.fillMaxSize(),
+                                contentScale    = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(Icons.Default.MusicNote, null, Modifier.size(96.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                        }
+                    }
                 }
             }
 
@@ -112,37 +170,49 @@ fun PlayerScreen(
 
             // ── Song info ────────────────────────────────────────────────────
             Column(Modifier.fillMaxWidth()) {
-                AnimatedContent(currentSong?.title ?: "",
+                AnimatedContent(
+                    targetState = currentSong?.title ?: "",
                     transitionSpec = {
-                        (fadeIn(tween(300)) + slideInVertically(tween(300)) { -it / 2 })
-                            .togetherWith(fadeOut(tween(200)))
-                    }, label = "title"
+                        (fadeIn(tween(220)) + slideInVertically(tween(220)) { -it / 3 })
+                            .togetherWith(fadeOut(tween(160)))
+                    },
+                    label = "title"
                 ) { title ->
-                    Text(title.ifEmpty { "Nothing playing" },
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        title.ifEmpty { "Nothing playing" },
+                        style      = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines   = 1,
+                        overflow   = TextOverflow.Ellipsis
+                    )
                 }
                 Spacer(Modifier.height(4.dp))
-                AnimatedContent(currentSong?.artist ?: "",
+                AnimatedContent(
+                    targetState = currentSong?.artist ?: "",
                     transitionSpec = {
-                        (fadeIn(tween(300)) + slideInVertically(tween(300)) { -it / 2 })
-                            .togetherWith(fadeOut(tween(200)))
-                    }, label = "artist"
+                        (fadeIn(tween(220)) + slideInVertically(tween(220)) { -it / 3 })
+                            .togetherWith(fadeOut(tween(160)))
+                    },
+                    label = "artist"
                 ) { artist ->
-                    Text(artist, style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        artist,
+                        style    = MaterialTheme.typography.bodyLarge,
+                        color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(20.dp))
 
             // ── Seek bar ─────────────────────────────────────────────────────
             Column(Modifier.fillMaxWidth()) {
                 Slider(
                     value = progress, onValueChange = { viewModel.seekTo(it) },
                     modifier = Modifier.fillMaxWidth(),
-                    colors = SliderDefaults.colors(
+                    colors   = SliderDefaults.colors(
                         thumbColor         = MaterialTheme.colorScheme.primary,
                         activeTrackColor   = MaterialTheme.colorScheme.primary,
                         inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
@@ -156,7 +226,7 @@ fun PlayerScreen(
                 }
             }
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(24.dp))
 
             // ── Controls ─────────────────────────────────────────────────────
             Row(
@@ -173,21 +243,26 @@ fun PlayerScreen(
                     Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(36.dp))
                 }
                 FilledIconButton(
-                    onClick   = { viewModel.togglePlayback() },
-                    modifier  = Modifier.size(72.dp),
-                    shape     = CircleShape,
-                    colors    = IconButtonDefaults.filledIconButtonColors(
+                    onClick  = { viewModel.togglePlayback() },
+                    modifier = Modifier.size(72.dp),
+                    shape    = CircleShape,
+                    colors   = IconButtonDefaults.filledIconButtonColors(
                         containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    AnimatedContent(isPlaying,
+                    AnimatedContent(
+                        targetState = isPlaying,
                         transitionSpec = {
                             (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn())
                                 .togetherWith(scaleOut() + fadeOut())
-                        }, label = "playPause"
+                        },
+                        label = "playPause"
                     ) { playing ->
-                        Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        Icon(
+                            if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                             if (playing) "Pause" else "Play",
-                            Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                            Modifier.size(36.dp),
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
                     }
                 }
                 IconButton(onClick = { viewModel.playNext() }, Modifier.size(52.dp)) {
@@ -211,4 +286,25 @@ fun PlayerScreen(
             Spacer(Modifier.weight(0.4f))
         }
     }
+}
+
+// ─── Native video surface ──────────────────────────────────────────────────────
+
+@Composable
+fun VideoPlayerView(player: Player?, modifier: Modifier = Modifier) {
+    AndroidView(
+        factory = { ctx ->
+            PlayerView(ctx).apply {
+                useController  = false
+                resizeMode     = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                layoutParams   = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        },
+        update    = { view -> view.player = player },
+        onRelease = { view -> view.player = null },
+        modifier  = modifier
+    )
 }

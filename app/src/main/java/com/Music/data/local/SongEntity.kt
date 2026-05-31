@@ -14,3 +14,7 @@ data class SongEntity(
     val sourceUrl: String,
     val sortOrder: Int = 0
 )
+
+fun SongEntity.isVideo(): Boolean =
+    filePath.substringAfterLast(".").lowercase() in
+            setOf("mp4", "mkv", "webm", "avi", "mov", "3gp", "m4v")

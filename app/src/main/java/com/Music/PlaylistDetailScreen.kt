@@ -24,12 +24,13 @@ import com.Music.data.local.SongEntity
 fun PlaylistDetailScreen(
     playlistId: Long,
     viewModel: MainViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToPlayer: () -> Unit          // ← added
 ) {
-    val songsFlow = remember(playlistId) { viewModel.getPlaylistSongs(playlistId) }
-    val songs     by songsFlow.collectAsState(emptyList())
-    val playlists by viewModel.playlists.collectAsState()
-    val playlist   = playlists.find { it.playlist.id == playlistId }?.playlist
+    val songsFlow   = remember(playlistId) { viewModel.getPlaylistSongs(playlistId) }
+    val songs       by songsFlow.collectAsState(emptyList())
+    val playlists   by viewModel.playlists.collectAsState()
+    val playlist     = playlists.find { it.playlist.id == playlistId }?.playlist
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying   by viewModel.isPlaying.collectAsState()
 
@@ -39,7 +40,8 @@ fun PlaylistDetailScreen(
                 title = {
                     Column {
                         Text(playlist?.name ?: "Playlist", fontWeight = FontWeight.Bold)
-                        Text("${songs.size} songs", style = MaterialTheme.typography.labelMedium,
+                        Text("${songs.size} songs",
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
@@ -58,7 +60,7 @@ fun PlaylistDetailScreen(
                     Text("No songs in this playlist",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Add songs from the library via ⋮ menu",
+                    Text("Add songs via the ⋮ menu in the library",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
                 }
@@ -69,27 +71,27 @@ fun PlaylistDetailScreen(
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 item {
-                    // Play / Shuffle row
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick = { viewModel.playSongList(songs, 0) },
+                            onClick  = { viewModel.playSongList(songs, 0); onNavigateToPlayer() },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
+                            shape    = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Play All")
                         }
                         OutlinedButton(
-                            onClick = {
+                            onClick  = {
                                 viewModel.toggleShuffle()
                                 viewModel.playSongList(songs, 0)
+                                onNavigateToPlayer()
                             },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
+                            shape    = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Shuffle, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
@@ -101,11 +103,14 @@ fun PlaylistDetailScreen(
 
                 itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
                     PlaylistSongItem(
-                        song        = song,
-                        isCurrent   = song.id == currentSong?.id,
-                        isPlaying   = isPlaying && song.id == currentSong?.id,
-                        onPlay      = { viewModel.playSongList(songs, index) },
-                        onRemove    = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
+                        song      = song,
+                        isCurrent = song.id == currentSong?.id,
+                        isPlaying = isPlaying && song.id == currentSong?.id,
+                        onPlay    = {
+                            viewModel.playSongList(songs, index)
+                            onNavigateToPlayer()                   // ← opens player
+                        },
+                        onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
                     )
                 }
             }
@@ -140,8 +145,10 @@ private fun PlaylistSongItem(
                     Icon(Icons.Default.MusicNote, null)
                 }
                 if (isCurrent) {
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        null, tint = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         },

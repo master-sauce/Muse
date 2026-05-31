@@ -71,6 +71,8 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.session)
     implementation(libs.androidx.media3.ui)
+    // match the version already used by your other media3 libs
+    implementation("androidx.media3:media3-ui:1.3.1")
 
     // Network
     implementation(libs.retrofit)
