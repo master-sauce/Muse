@@ -223,7 +223,7 @@ private fun SongsTab(
     val context = LocalContext.current
     val haptic  = LocalHapticFeedback.current
 
-    if (songs.isEmpty()) { EmptyLibrary(onOpenAdd); return }   
+    if (songs.isEmpty()) { EmptyLibrary(onOpenAdd); return }
 
     val lazyListState    = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
