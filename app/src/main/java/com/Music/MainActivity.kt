@@ -55,13 +55,17 @@ fun MusicApp() {
         }
     }
 
-    NavHost(navController = navController, startDestination = Screen.Library.route) {
+    NavHost(
+        navController    = navController,
+        startDestination = Screen.Library.route
+    ) {
 
         composable(
-            Screen.Library.route,
+            route              = Screen.Library.route,
             enterTransition    = { fadeIn(tween(200)) },
-            exitTransition     = { ExitTransition.None },
-            popEnterTransition = { fadeIn(tween(200)) }
+            exitTransition     = { fadeOut(tween(120)) },
+            popEnterTransition = { fadeIn(tween(200)) },
+            popExitTransition  = { fadeOut(tween(120)) }
         ) {
             LibraryScreen(
                 viewModel            = viewModel,
@@ -71,20 +75,22 @@ fun MusicApp() {
         }
 
         composable(
-            Screen.Player.route,
-            // snappy spring slide-up — feels natural, no rubber-band bounce
+            route = Screen.Player.route,
             enterTransition = {
+                // full off-screen start + instant opacity = zero bleed-through from library
                 slideInVertically(
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness    = Spring.StiffnessMedium
+                        stiffness    = Spring.StiffnessMediumLow
                     )
-                ) { it / 2 } + fadeIn(tween(180))
+                ) { it } + fadeIn(tween(0))
             },
-            exitTransition    = { ExitTransition.None },
+            exitTransition    = { fadeOut(tween(120)) },
+            popEnterTransition = { fadeIn(tween(0)) },
             popExitTransition = {
-                slideOutVertically(tween(220, easing = FastOutLinearInEasing)) { it / 2 } +
-                        fadeOut(tween(180))
+                slideOutVertically(
+                    animationSpec = tween(240, easing = FastOutLinearInEasing)
+                ) { it } + fadeOut(tween(180))
             }
         ) {
             PlayerScreen(
@@ -95,38 +101,57 @@ fun MusicApp() {
         }
 
         composable(
-            Screen.Lyrics.route,
+            route = Screen.Lyrics.route,
             enterTransition = {
                 slideInVertically(
-                    spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMedium)
-                ) { it / 2 } + fadeIn(tween(180))
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness    = Spring.StiffnessMediumLow
+                    )
+                ) { it } + fadeIn(tween(0))
             },
-            popExitTransition = {
-                slideOutVertically(tween(200, easing = FastOutLinearInEasing)) { it / 2 } +
-                        fadeOut(tween(160))
+            exitTransition     = { fadeOut(tween(120)) },
+            popEnterTransition = { fadeIn(tween(0)) },
+            popExitTransition  = {
+                slideOutVertically(
+                    animationSpec = tween(220, easing = FastOutLinearInEasing)
+                ) { it } + fadeOut(tween(160))
             }
         ) {
-            LyricsScreen(viewModel = viewModel, onNavigateBack = { navController.popBackStack() })
+            LyricsScreen(
+                viewModel      = viewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
         }
 
         composable(
-            Screen.PlaylistDetail.route,
-            arguments         = listOf(navArgument(Screen.PlaylistDetail.ARG) { type = NavType.LongType }),
-            enterTransition   = {
-                slideInHorizontally(spring(Spring.DampingRatioNoBouncy, Spring.StiffnessMedium)) { it / 2 } +
-                        fadeIn(tween(180))
+            route     = Screen.PlaylistDetail.route,
+            arguments = listOf(
+                navArgument(Screen.PlaylistDetail.ARG) { type = NavType.LongType }
+            ),
+            enterTransition = {
+                slideInHorizontally(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness    = Spring.StiffnessMediumLow
+                    )
+                ) { it } + fadeIn(tween(0))
             },
-            popExitTransition = {
-                slideOutHorizontally(tween(220, easing = FastOutLinearInEasing)) { it / 2 } +
-                        fadeOut(tween(160))
+            exitTransition     = { fadeOut(tween(120)) },
+            popEnterTransition = { fadeIn(tween(200)) },
+            popExitTransition  = {
+                slideOutHorizontally(
+                    animationSpec = tween(220, easing = FastOutLinearInEasing)
+                ) { it } + fadeOut(tween(160))
             }
         ) { back ->
-            val playlistId = back.arguments?.getLong(Screen.PlaylistDetail.ARG) ?: return@composable
+            val playlistId = back.arguments?.getLong(Screen.PlaylistDetail.ARG)
+                ?: return@composable
             PlaylistDetailScreen(
                 playlistId         = playlistId,
                 viewModel          = viewModel,
                 onBack             = { navController.popBackStack() },
-                onNavigateToPlayer = { navController.navigate(Screen.Player.route) }  // ← wired
+                onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
             )
         }
     }
