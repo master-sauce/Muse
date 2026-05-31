@@ -95,6 +95,10 @@ dependencies {
 
     implementation("sh.calvin.reorderable:reorderable:2.4.3")
 
+
+    //media player video
+    implementation("androidx.media3:media3-ui:1.3.1")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

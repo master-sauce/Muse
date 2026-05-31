@@ -6,7 +6,6 @@ import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.UUID
 
 class DownloadManager(private val context: Context) {
 
@@ -14,28 +13,25 @@ class DownloadManager(private val context: Context) {
         val downloadDir = File(context.getExternalFilesDir(null), "downloads")
         if (!downloadDir.exists()) downloadDir.mkdirs()
 
-        // response.out is stdout TEXT not a path — use UUID so we know the filename
-        val uniqueId = UUID.randomUUID().toString()
+        val outputTemplate = "${downloadDir.absolutePath}/%(title)s.%(ext)s"
 
         val request = YoutubeDLRequest(url)
-        request.addOption("--extract-audio")
-        request.addOption("--audio-format", "mp3")
-        request.addOption("--audio-quality", "0")
-        request.addOption("--no-playlist")
-        request.addOption("-o", "${downloadDir.absolutePath}/$uniqueId.%(ext)s")
+        // Official format from library docs: best MP4 video + best M4A audio, fallback to best MP4, fallback to best
+        request.addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+        request.addOption("-o", outputTemplate)
 
-        YoutubeDL.getInstance().execute(request) { progress, eta, _ ->
-            onProgress(progress, eta)
+        // Snapshot before download
+        val before = downloadDir.listFiles()?.map { it.absolutePath }?.toSet() ?: emptySet()
+
+        YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, _ ->
+            onProgress(progress, etaInSeconds)
         }
 
-        // --extract-audio --audio-format mp3 always outputs .mp3
-        val mp3File = File(downloadDir, "$uniqueId.mp3")
-        if (mp3File.exists()) {
-            mp3File
-        } else {
-            // Fallback: yt-dlp left a different extension
-            downloadDir.listFiles()?.find { it.name.startsWith(uniqueId) }
-                ?: throw Exception("Download completed but output file not found in $downloadDir")
-        }
+        // Find new file — do not trust response.out
+        val after = downloadDir.listFiles()?.map { it.absolutePath }?.toSet() ?: emptySet()
+        val newFile = after.subtract(before).firstOrNull()?.let { File(it) }
+            ?: throw Exception("Downloaded file not found in ${downloadDir.absolutePath}")
+
+        newFile
     }
 }

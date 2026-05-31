@@ -99,7 +99,7 @@ fun LibraryScreen(
                 CenterAlignedTopAppBar(
                     title = {
                         Text(
-                            "Muse",
+                            "",
                             fontWeight = FontWeight.ExtraBold,
                             style = MaterialTheme.typography.headlineMedium
                         )
@@ -785,7 +785,7 @@ fun AddMusicSheet(
                             value         = urlText,
                             onValueChange = { urlText = it },
                             modifier      = Modifier.fillMaxWidth(),
-                            placeholder   = { Text("YouTube, Spotify, or Apple Music URL") },
+                            placeholder   = { Text("Paste Your Music link Here") },
                             singleLine    = true,
                             shape         = RoundedCornerShape(12.dp),
                             leadingIcon   = { Icon(Icons.Default.Link, null) }
