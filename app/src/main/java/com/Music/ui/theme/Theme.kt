@@ -1,58 +1,64 @@
 package com.Music.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
-)
+private val MuseDarkColorScheme = darkColorScheme(
+    // Primary — cyan circuit glow
+    primary                = MuseCyan,
+    onPrimary              = MuseOnCyan,
+    primaryContainer       = MuseCyanContainer,
+    onPrimaryContainer     = MuseOnCyanContainer,
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    // Secondary — steel blue
+    secondary              = MuseBlue,
+    onSecondary            = MuseOnBlue,
+    secondaryContainer     = MuseBlueContainer,
+    onSecondaryContainer   = MuseOnBlueContainer,
 
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
+    // Tertiary — teal accent
+    tertiary               = MuseTeal,
+    onTertiary             = MuseOnTeal,
+    tertiaryContainer      = MuseTealContainer,
+    onTertiaryContainer    = MuseOnTealContainer,
+
+    // Backgrounds
+    background             = MuseBackground,
+    onBackground           = MuseOnBackground,
+    surface                = MuseSurface,
+    onSurface              = MuseOnSurface,
+    surfaceVariant         = MuseSurfaceVariant,
+    onSurfaceVariant       = MuseOnSurfaceVar,
+
+    // Outlines
+    outline                = MuseOutline,
+    outlineVariant         = MuseOutlineVariant,
+
+    // Errors
+    error                  = MuseError,
+    onError                = MuseOnError,
+    errorContainer         = MuseErrorContainer,
+    onErrorContainer       = MuseOnErrorContainer,
+
+    // Inverse (snackbars, tooltips)
+    inverseSurface         = MuseOnSurface,
+    inverseOnSurface       = MuseSurface,
+    inversePrimary         = MuseCyanDim,
+
+    // Tint applied to elevated surfaces
+    surfaceTint            = MuseCyan,
+
+    scrim                  = Color(0xCC000000)
 )
 
 @Composable
-fun MuseTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit
-) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
+fun MuseTheme(content: @Composable () -> Unit) {
+    // Always dark — matches the icon's charcoal aesthetic
+    // No dynamic color — keeps brand palette consistent across all devices
     MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
+        colorScheme = MuseDarkColorScheme,
+        typography  = MuseTypography,
+        content     = content
     )
 }
