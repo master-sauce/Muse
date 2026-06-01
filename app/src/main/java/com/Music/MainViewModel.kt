@@ -152,9 +152,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (playing) startProgressUpdate() else stopProgressUpdate()
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // Keep the song in manual queue tracking if we transition to it,
-                // but we filter manualQueueIds in updateQueue to ensure UI is correct.
-                
                 _currentSong.value  = _songs.value.find { it.id == mediaItem?.mediaId }
                 _playbackProgress.value = 0f
                 _currentPosition.value  = 0L
@@ -175,10 +172,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         // The UI Queue tab only shows items that were manually queued.
         val items = mutableListOf<MediaItem>()
+        val seenIds = mutableSetOf<String>()
         for (i in 0 until player.mediaItemCount) {
             val item = player.getMediaItemAt(i)
-            // Show if it's in the manual tracking set
-            if (manualQueueIds.contains(item.mediaId)) {
+            // Show if it's in the manual tracking set AND not already seen (to combine duplicates in UI)
+            if (manualQueueIds.contains(item.mediaId) && seenIds.add(item.mediaId)) {
                 items.add(item)
             }
         }
@@ -281,17 +279,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Helper to transition from regular playback to manual queue mode.
-     * Adds the current song to the manual tracking and clears future natural songs.
+     * Clears everything around the current song to override natural order.
      */
     private fun enterManualQueueMode() {
         val player = controller ?: return
         if (manualQueueIds.isEmpty()) {
             _currentSong.value?.let { current ->
                 manualQueueIds.add(current.id)
-                // Clear everything after the current song to override natural order
                 val currentIndex = player.currentMediaItemIndex
                 if (player.mediaItemCount > currentIndex + 1) {
                     player.removeMediaItems(currentIndex + 1, player.mediaItemCount)
+                }
+                if (currentIndex > 0) {
+                    player.removeMediaItems(0, currentIndex)
                 }
             }
         }
@@ -304,16 +304,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         if (!File(song.filePath).exists()) return
         
-        // 1. Enter manual mode if we were in regular mode
         enterManualQueueMode()
 
-        // 2. Prevent duplicates: remove if already exists (unless currently playing)
-        if (manualQueueIds.contains(song.id)) {
-            if (song.id == _currentSong.value?.id) return
-            removeFromQueue(song.id)
+        // Prevent duplicates: move to end if already exists, but skip if currently playing
+        if (song.id == _currentSong.value?.id) return
+
+        // Remove any existing instances from the player
+        for (i in player.mediaItemCount - 1 downTo 0) {
+            if (player.getMediaItemAt(i).mediaId == song.id) {
+                if (i != player.currentMediaItemIndex) player.removeMediaItem(i)
+            }
         }
 
-        // 3. Add to player and tracking
         manualQueueIds.add(song.id)
         player.addMediaItem(buildMediaItem(song))
         
@@ -326,10 +328,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun removeFromQueue(songId: String) {
         val player = controller ?: return
         manualQueueIds.remove(songId)
-        for (i in 0 until player.mediaItemCount) {
+        // Remove ALL instances of this song from the player
+        for (i in player.mediaItemCount - 1 downTo 0) {
             if (player.getMediaItemAt(i).mediaId == songId) {
                 player.removeMediaItem(i)
-                break
             }
         }
         updateQueue()
@@ -339,9 +341,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         if (index in 0 until player.mediaItemCount) {
             val item = player.getMediaItemAt(index)
-            manualQueueIds.remove(item.mediaId)
-            player.removeMediaItem(index)
-            updateQueue()
+            removeFromQueue(item.mediaId)
         }
     }
 
@@ -365,9 +365,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         enterManualQueueMode()
 
-        if (manualQueueIds.contains(song.id)) {
-            if (song.id == _currentSong.value?.id) return
-            removeFromQueue(song.id)
+        if (song.id == _currentSong.value?.id) return
+
+        // Remove existing instances before inserting at next position
+        for (i in player.mediaItemCount - 1 downTo 0) {
+            if (player.getMediaItemAt(i).mediaId == song.id) {
+                if (i != player.currentMediaItemIndex) player.removeMediaItem(i)
+            }
         }
 
         manualQueueIds.add(song.id)
@@ -474,8 +478,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteSong(song: SongEntity) {
         viewModelScope.launch {
             controller?.let { player ->
-                for (i in 0 until player.mediaItemCount) {
-                    if (player.getMediaItemAt(i).mediaId == song.id) { player.removeMediaItem(i); break }
+                for (i in player.mediaItemCount - 1 downTo 0) {
+                    if (player.getMediaItemAt(i).mediaId == song.id) player.removeMediaItem(i)
                 }
             }
             repository.deleteSong(song)
