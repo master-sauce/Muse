@@ -99,7 +99,7 @@ fun LibraryScreen(
                 CenterAlignedTopAppBar(
                     title = {
                         Text(
-                            "",
+                            "Library",
                             fontWeight = FontWeight.ExtraBold,
                             style = MaterialTheme.typography.headlineMedium
                         )
@@ -163,6 +163,8 @@ fun LibraryScreen(
                         inSelection     = inSelection,
                         playlists       = playlists.map { it.playlist },
                         onPlay          = { song -> viewModel.playSong(song); onNavigateToPlayer() },
+                        onPlayNext      = { song -> viewModel.playNext(song) },
+                        onAddToQueue    = { song -> viewModel.addToQueue(song) },
                         onLongPress     = { id -> viewModel.toggleSelect(id) },
                         onToggleSelect  = { id -> viewModel.toggleSelect(id) },
                         onDelete        = { song -> viewModel.deleteSong(song) },
@@ -195,9 +197,7 @@ fun LibraryScreen(
                     onPickFile       = {
                         pickFile.launch(arrayOf(
                             "audio/*",
-                            "video/mp4",
-                            "video/x-matroska",
-                            "video/webm"
+                            "video/*"
                         ))
                         showAdd = false
                     },
@@ -227,6 +227,8 @@ private fun SongsTab(
     inSelection: Boolean,
     playlists: List<PlaylistEntity>,
     onPlay: (SongEntity) -> Unit,
+    onPlayNext: (SongEntity) -> Unit,
+    onAddToQueue: (SongEntity) -> Unit,
     onLongPress: (String) -> Unit,
     onToggleSelect: (String) -> Unit,
     onDelete: (SongEntity) -> Unit,
@@ -267,6 +269,8 @@ private fun SongsTab(
                     ),
                     playlists          = playlists,
                     onPlay             = { onPlay(song) },
+                    onPlayNext         = { onPlayNext(song) },
+                    onAddToQueue       = { onAddToQueue(song) },
                     onLongPress        = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onLongPress(song.id)
@@ -288,7 +292,7 @@ private fun shareSong(context: Context, song: SongEntity) {
     context.startActivity(
         Intent.createChooser(
             Intent(Intent.ACTION_SEND).apply {
-                type = "audio/*"
+                type = if (song.filePath.substringAfterLast(".").lowercase() in setOf("mp4", "mkv", "webm")) "video/*" else "audio/*"
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_TITLE, song.title)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -312,6 +316,8 @@ fun SongListItem(
     dragHandleModifier: Modifier = Modifier,
     playlists: List<PlaylistEntity> = emptyList(),
     onPlay: () -> Unit,
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
     onLongPress: () -> Unit,
     onToggleSelect: () -> Unit,
     onDelete: () -> Unit,
@@ -413,6 +419,16 @@ fun SongListItem(
                             expanded         = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text        = { Text("Play Next") },
+                                leadingIcon = { Icon(Icons.Default.SkipNext, null) },
+                                onClick     = { showMenu = false; onPlayNext() }
+                            )
+                            DropdownMenuItem(
+                                text        = { Text("Add to Queue") },
+                                leadingIcon = { Icon(Icons.Default.Queue, null) },
+                                onClick     = { showMenu = false; onAddToQueue() }
+                            )
                             DropdownMenuItem(
                                 text        = { Text("Add to Playlist") },
                                 leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },

@@ -1,5 +1,10 @@
 package com.Music
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.animation.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,11 +18,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.Music.data.local.SongEntity
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,7 +33,7 @@ fun PlaylistDetailScreen(
     playlistId: Long,
     viewModel: MainViewModel,
     onBack: () -> Unit,
-    onNavigateToPlayer: () -> Unit          // ← added
+    onNavigateToPlayer: () -> Unit
 ) {
     val songsFlow   = remember(playlistId) { viewModel.getPlaylistSongs(playlistId) }
     val songs       by songsFlow.collectAsState(emptyList())
@@ -108,9 +116,12 @@ fun PlaylistDetailScreen(
                         isPlaying = isPlaying && song.id == currentSong?.id,
                         onPlay    = {
                             viewModel.playSongList(songs, index)
-                            onNavigateToPlayer()                   // ← opens player
+                            onNavigateToPlayer()
                         },
-                        onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
+                        onPlayNext = { viewModel.playNext(song) },
+                        onAddToQueue = { viewModel.addToQueue(song) },
+                        onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) },
+                        onShare   = { /* Handled below */ }
                     )
                 }
             }
@@ -124,8 +135,14 @@ private fun PlaylistSongItem(
     isCurrent: Boolean,
     isPlaying: Boolean,
     onPlay: () -> Unit,
-    onRemove: () -> Unit
+    onPlayNext: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onRemove: () -> Unit,
+    onShare: () -> Unit
 ) {
+    val context = LocalContext.current
+    var showMenu by remember { mutableStateOf(false) }
+
     ListItem(
         modifier = Modifier.clickable { onPlay() },
         headlineContent = {
@@ -145,18 +162,62 @@ private fun PlaylistSongItem(
                     Icon(Icons.Default.MusicNote, null)
                 }
                 if (isCurrent) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        null, tint = MaterialTheme.colorScheme.primary
-                    )
+                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                        contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            null, tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                 }
             }
         },
         trailingContent = {
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Default.RemoveCircleOutline, "Remove from playlist",
-                    tint = MaterialTheme.colorScheme.error)
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, "Options")
+                }
+                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Play Next") },
+                        leadingIcon = { Icon(Icons.Default.SkipNext, null) },
+                        onClick = { onPlayNext(); showMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Add to Queue") },
+                        leadingIcon = { Icon(Icons.Default.Queue, null) },
+                        onClick = { onAddToQueue(); showMenu = false }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share") },
+                        leadingIcon = { Icon(Icons.Default.Share, null) },
+                        onClick = { shareSong(context, song); showMenu = false }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Remove from Playlist", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = { onRemove(); showMenu = false }
+                    )
+                }
             }
         }
+    )
+}
+
+private fun shareSong(context: Context, song: SongEntity) {
+    val file = File(song.filePath)
+    if (!file.exists()) return
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    context.startActivity(
+        Intent.createChooser(
+            Intent(Intent.ACTION_SEND).apply {
+                type = if (song.filePath.substringAfterLast(".").lowercase() in setOf("mp4", "mkv", "webm")) "video/*" else "audio/*"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TITLE, song.title)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+            "Share \"${song.title}\""
+        )
     )
 }
