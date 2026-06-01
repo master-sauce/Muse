@@ -38,13 +38,13 @@ fun PlaylistDetailScreen(
     onBack: () -> Unit,
     onNavigateToPlayer: () -> Unit
 ) {
-    val songsFlow   = remember(playlistId) { viewModel.getPlaylistSongs(playlistId) }
-    val songs       by songsFlow.collectAsState(emptyList())
-    val playlists   by viewModel.playlists.collectAsState()
+    val songsFlow    = remember(playlistId) { viewModel.getPlaylistSongs(playlistId) }
+    val songs        by songsFlow.collectAsState(emptyList<SongEntity>())
+    val playlists    by viewModel.playlists.collectAsState()
     val playlist     = playlists.find { it.playlist.id == playlistId }?.playlist
-    val currentSong by viewModel.currentSong.collectAsState()
-    val isPlaying   by viewModel.isPlaying.collectAsState()
-    val queue       by viewModel.queue.collectAsState()
+    val currentSong  by viewModel.currentSong.collectAsState()
+    val isPlaying    by viewModel.isPlaying.collectAsState()
+    val queue        by viewModel.queue.collectAsState()
 
     val haptic = LocalHapticFeedback.current
 
@@ -116,14 +116,15 @@ fun PlaylistDetailScreen(
                 }
 
                 itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
-                    val isInQueue = queue.any { it.mediaId == song.id }
+                    // Show in-queue icon if song is in player's queue (and not current)
+                    val isInQueue = queue.any { it.mediaId == song.id && it.mediaId != currentSong?.id }
                     
                     val dismissState = rememberSwipeToDismissBoxState(
                         confirmValueChange = {
                             if (it == SwipeToDismissBoxValue.StartToEnd) {
                                 viewModel.addToQueue(song)
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                false // Don't actually dismiss the item from the list
+                                false
                             } else false
                         }
                     )

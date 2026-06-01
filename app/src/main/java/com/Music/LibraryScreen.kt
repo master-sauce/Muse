@@ -175,8 +175,8 @@ fun LibraryScreen(
                     1 -> QueueTab(
                         queue       = queue,
                         currentSong = currentSong,
-                        onPlayItem  = { index -> viewModel.playFromQueue(index) },
-                        onRemove    = { index -> viewModel.removeFromQueueByIndex(index) }
+                        onPlayItem  = { item -> viewModel.playFromQueue(item) },
+                        onRemove    = { item -> viewModel.removeFromQueue(item.mediaId) }
                     )
                     2 -> PlaylistsTab(
                         playlists        = playlists,
@@ -631,8 +631,8 @@ private fun PlaylistItem(
 private fun QueueTab(
     queue: List<MediaItem>,
     currentSong: SongEntity?,
-    onPlayItem: (Int) -> Unit,
-    onRemove: (Int) -> Unit
+    onPlayItem: (MediaItem) -> Unit,
+    onRemove: (MediaItem) -> Unit
 ) {
     if (queue.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -642,12 +642,12 @@ private fun QueueTab(
     }
 
     LazyColumn(Modifier.fillMaxSize()) {
-        itemsIndexed(queue) { index, item ->
+        itemsIndexed(queue) { _, item ->
             val isCurrent = item.mediaId == currentSong?.id
             val dismissState = rememberSwipeToDismissBoxState(
                 confirmValueChange = {
                     if (it == SwipeToDismissBoxValue.EndToStart) {
-                        onRemove(index)
+                        onRemove(item)
                         true
                     } else false
                 }
@@ -663,7 +663,7 @@ private fun QueueTab(
                 }
             ) {
                 ListItem(
-                    modifier = Modifier.clickable { onPlayItem(index) },
+                    modifier = Modifier.clickable { onPlayItem(item) },
                     headlineContent = {
                         Text(item.mediaMetadata.title?.toString() ?: "Unknown", 
                             fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
@@ -680,7 +680,7 @@ private fun QueueTab(
                         }
                     },
                     trailingContent = {
-                        IconButton(onClick = { onRemove(index) }) {
+                        IconButton(onClick = { onRemove(item) }) {
                             Icon(Icons.Default.RemoveCircleOutline, "Remove", tint = MaterialTheme.colorScheme.error)
                         }
                     }
