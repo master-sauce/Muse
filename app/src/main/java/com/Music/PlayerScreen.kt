@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -157,7 +158,7 @@ fun PlayerScreen(
                         Icon(
                             Icons.Default.FullscreenExit,
                             "Exit fullscreen",
-                            tint = MaterialTheme.colorScheme.onPrimary
+                            tint = Color.White
                         )
                     }
                 }
@@ -256,11 +257,12 @@ fun PlayerScreen(
                                     modifier = Modifier
                                         .align(Alignment.BottomEnd)
                                         .padding(8.dp)
+                                        .background(Color.Black.copy(alpha = 0.3f), CircleShape)
                                 ) {
                                     Icon(
                                         Icons.Default.Fullscreen,
                                         "Fullscreen",
-                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        tint = Color.White,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
