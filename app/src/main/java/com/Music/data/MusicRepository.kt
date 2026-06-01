@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.util.Log
 import com.Music.data.local.*
 import com.Music.data.remote.OdesliService
@@ -52,7 +53,6 @@ class MusicRepository(
 
         val file = downloadManager.downloadSong(finalUrl) { p, _ -> onProgress(p) }
 
-        val maxOrder = allSongs.let { 0 } // will be set via rowid in migration
         songDao.insertSong(SongEntity(
             id           = info?.id ?: System.currentTimeMillis().toString(),
             title        = info?.title ?: file.nameWithoutExtension,
@@ -70,17 +70,25 @@ class MusicRepository(
         try {
             retriever.setDataSource(context, uri)
 
+            var fileName = ""
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1 && cursor.moveToFirst()) {
+                    fileName = cursor.getString(nameIndex)
+                }
+            }
+            if (fileName.isBlank()) {
+                fileName = uri.lastPathSegment ?: "unknown"
+            }
+
             // Try embedded metadata title first
             val embeddedTitle = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)
                 ?.takeIf { it.isNotBlank() }
 
-            // SAF URIs: lastPathSegment looks like "primary:Music/Artist - Song.mp3"
-            // Strip everything before last '/' then before last ':' then remove extension
-            val rawSegment = uri.lastPathSegment ?: ""
-            val cleanFileName = rawSegment
-                .substringAfterLast("/")   // "Artist - Song.mp3"
-                .substringAfterLast(":")   // handles "primary:filename.mp3" with no slash
-                .substringBeforeLast(".")  // "Artist - Song"
+            val cleanFileName = fileName
+                .substringAfterLast("/")
+                .substringAfterLast(":")
+                .substringBeforeLast(".")
                 .trim()
 
             val title  = embeddedTitle
@@ -90,7 +98,8 @@ class MusicRepository(
                 ?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
             val durMs  = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            val ext    = rawSegment.substringAfterLast(".").takeIf { it.length in 1..5 } ?: "mp3"
+            
+            val ext = fileName.substringAfterLast(".", "mp3").lowercase()
 
             val destDir  = File(context.getExternalFilesDir(null), "imported").also { it.mkdirs() }
             val destFile = File(destDir, "${System.currentTimeMillis()}.$ext")
@@ -123,7 +132,7 @@ class MusicRepository(
         )?.use { cursor ->
             while (cursor.moveToNext()) {
                 val mime = cursor.getString(2) ?: continue
-                if (!mime.startsWith("audio/")) continue
+                if (!mime.startsWith("audio/") && !mime.startsWith("video/")) continue
                 val fileUri = DocumentsContract.buildDocumentUriUsingTree(
                     treeUri, cursor.getString(0))
                 try { importFromUri(fileUri) }
