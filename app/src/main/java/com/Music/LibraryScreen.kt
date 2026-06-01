@@ -9,6 +9,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.media3.common.MediaItem
 import coil.compose.AsyncImage
 import com.Music.data.local.PlaylistEntity
 import com.Music.data.local.PlaylistWithSongs
@@ -58,6 +60,7 @@ fun LibraryScreen(
     val selectedIds   by viewModel.selectedIds.collectAsState()
     val inSelection   = selectedIds.isNotEmpty()
     val playlists     by viewModel.playlists.collectAsState()
+    val queue         by viewModel.queue.collectAsState()
 
     var selectedTab          by remember { mutableIntStateOf(0) }
     var showAdd              by remember { mutableStateOf(false) }
@@ -133,16 +136,9 @@ fun LibraryScreen(
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = selectedTab) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick  = { selectedTab = 0 },
-                    text     = { Text("Songs") }
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick  = { selectedTab = 1 },
-                    text     = { Text("Playlists") }
-                )
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Songs") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Playlists") })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Queue") })
             }
 
             AnimatedContent(
@@ -162,9 +158,11 @@ fun LibraryScreen(
                         selectedIds     = selectedIds,
                         inSelection     = inSelection,
                         playlists       = playlists.map { it.playlist },
+                        queue           = queue,
                         onPlay          = { song -> viewModel.playSong(song); onNavigateToPlayer() },
                         onPlayNext      = { song -> viewModel.playNext(song) },
                         onAddToQueue    = { song -> viewModel.addToQueue(song) },
+                        onRemoveFromQueue = { id -> viewModel.removeFromQueue(id) },
                         onLongPress     = { id -> viewModel.toggleSelect(id) },
                         onToggleSelect  = { id -> viewModel.toggleSelect(id) },
                         onDelete        = { song -> viewModel.deleteSong(song) },
@@ -174,31 +172,31 @@ fun LibraryScreen(
                         onEndDrag       = { viewModel.endDrag() },
                         onOpenAdd       = { showAdd = true }
                     )
-                    else -> PlaylistsTab(
+                    1 -> PlaylistsTab(
                         playlists        = playlists,
                         onPlaylistClick  = { pl -> onNavigateToPlaylist(pl.id) },
                         onDeletePlaylist = { pl -> viewModel.deletePlaylist(pl) },
                         onCreatePlaylist = { showNewPlaylistDialog = true }
+                    )
+                    2 -> QueueTab(
+                        queue       = queue,
+                        currentSong = currentSong,
+                        onPlayItem  = { index -> viewModel.playFromQueue(index) },
+                        onRemove    = { index -> viewModel.removeFromQueueByIndex(index) }
                     )
                 }
             }
         }
 
         if (showAdd) {
-            ModalBottomSheet(
-                onDismissRequest = { showAdd = false },
-                sheetState       = addSheetState
-            ) {
+            ModalBottomSheet(onDismissRequest = { showAdd = false }, sheetState = addSheetState) {
                 AddMusicSheet(
                     isDownloading    = isDownloading,
                     downloadProgress = dlProgress,
                     isImporting      = isImporting,
                     onDownload       = { url -> viewModel.downloadSong(url); showAdd = false },
                     onPickFile       = {
-                        pickFile.launch(arrayOf(
-                            "audio/*",
-                            "video/*"
-                        ))
+                        pickFile.launch(arrayOf("audio/*", "video/*"))
                         showAdd = false
                     },
                     onPickFolder     = { pickFolder.launch(null); showAdd = false }
@@ -217,7 +215,7 @@ fun LibraryScreen(
 
 // ─── Songs tab ────────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun SongsTab(
     songs: List<SongEntity>,
@@ -226,9 +224,11 @@ private fun SongsTab(
     selectedIds: Set<String>,
     inSelection: Boolean,
     playlists: List<PlaylistEntity>,
+    queue: List<MediaItem>,
     onPlay: (SongEntity) -> Unit,
     onPlayNext: (SongEntity) -> Unit,
     onAddToQueue: (SongEntity) -> Unit,
+    onRemoveFromQueue: (String) -> Unit,
     onLongPress: (String) -> Unit,
     onToggleSelect: (String) -> Unit,
     onDelete: (SongEntity) -> Unit,
@@ -255,31 +255,58 @@ private fun SongsTab(
     ) {
         items(songs, key = { it.id }) { song ->
             ReorderableItem(reorderableState, key = song.id) { isDragging ->
-                SongListItem(
-                    song               = song,
-                    isCurrent          = song.id == currentSong?.id,
-                    isPlaying          = isPlaying && song.id == currentSong?.id,
-                    isSelected         = song.id in selectedIds,
-                    inSelection        = inSelection,
-                    isDragging         = isDragging,
-                    dragHandleModifier = Modifier.draggableHandle(
-                        enabled       = !inSelection,
-                        onDragStarted = { onStartDrag() },
-                        onDragStopped = { onEndDrag() }
-                    ),
-                    playlists          = playlists,
-                    onPlay             = { onPlay(song) },
-                    onPlayNext         = { onPlayNext(song) },
-                    onAddToQueue       = { onAddToQueue(song) },
-                    onLongPress        = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onLongPress(song.id)
-                    },
-                    onToggleSelect     = { onToggleSelect(song.id) },
-                    onDelete           = { onDelete(song) },
-                    onShare            = { shareSong(context, song) },
-                    onAddToPlaylist    = { plId -> onAddToPlaylist(song.id, plId) }
+                val isInQueue = queue.any { it.mediaId == song.id }
+                val dismissState = rememberSwipeToDismissBoxState(
+                    confirmValueChange = {
+                        if (it == SwipeToDismissBoxValue.StartToEnd) {
+                            onAddToQueue(song)
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            false
+                        } else false
+                    }
                 )
+
+                SwipeToDismissBox(
+                    state = dismissState,
+                    enableDismissFromEndToStart = false,
+                    backgroundContent = {
+                        val color = when (dismissState.dismissDirection) {
+                            SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                            else -> Color.Transparent
+                        }
+                        Box(Modifier.fillMaxSize().background(color).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterStart) {
+                            Icon(Icons.Default.Queue, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
+                    }
+                ) {
+                    SongListItem(
+                        song               = song,
+                        isCurrent          = song.id == currentSong?.id,
+                        isPlaying          = isPlaying && song.id == currentSong?.id,
+                        isInQueue          = isInQueue,
+                        isSelected         = song.id in selectedIds,
+                        inSelection        = inSelection,
+                        isDragging         = isDragging,
+                        dragHandleModifier = Modifier.draggableHandle(
+                            enabled       = !inSelection,
+                            onDragStarted = { onStartDrag() },
+                            onDragStopped = { onEndDrag() }
+                        ),
+                        playlists          = playlists,
+                        onPlay             = { onPlay(song) },
+                        onPlayNext         = { onPlayNext(song) },
+                        onAddToQueue       = { onAddToQueue(song) },
+                        onRemoveFromQueue  = { onRemoveFromQueue(song.id) },
+                        onLongPress        = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongPress(song.id)
+                        },
+                        onToggleSelect     = { onToggleSelect(song.id) },
+                        onDelete           = { onDelete(song) },
+                        onShare            = { shareSong(context, song) },
+                        onAddToPlaylist    = { plId -> onAddToPlaylist(song.id, plId) }
+                    )
+                }
             }
         }
     }
@@ -310,6 +337,7 @@ fun SongListItem(
     song: SongEntity,
     isCurrent: Boolean,
     isPlaying: Boolean,
+    isInQueue: Boolean,
     isSelected: Boolean,
     inSelection: Boolean,
     isDragging: Boolean,
@@ -318,6 +346,7 @@ fun SongListItem(
     onPlay: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
+    onRemoveFromQueue: () -> Unit,
     onLongPress: () -> Unit,
     onToggleSelect: () -> Unit,
     onDelete: () -> Unit,
@@ -342,14 +371,21 @@ fun SongListItem(
                 onLongClick = onLongPress
             ),
         headlineContent = {
-            Text(
-                song.title,
-                maxLines   = 1,
-                overflow   = TextOverflow.Ellipsis,
-                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                color      = if (isCurrent) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    song.title,
+                    maxLines   = 1,
+                    overflow   = TextOverflow.Ellipsis,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color      = if (isCurrent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (isInQueue && !isCurrent) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Default.Queue, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                }
+            }
         },
         supportingContent = {
             Text(
@@ -424,11 +460,19 @@ fun SongListItem(
                                 leadingIcon = { Icon(Icons.Default.SkipNext, null) },
                                 onClick     = { showMenu = false; onPlayNext() }
                             )
-                            DropdownMenuItem(
-                                text        = { Text("Add to Queue") },
-                                leadingIcon = { Icon(Icons.Default.Queue, null) },
-                                onClick     = { showMenu = false; onAddToQueue() }
-                            )
+                            if (isInQueue) {
+                                DropdownMenuItem(
+                                    text        = { Text("Remove from Queue") },
+                                    leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null) },
+                                    onClick     = { showMenu = false; onRemoveFromQueue() }
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text        = { Text("Add to Queue") },
+                                    leadingIcon = { Icon(Icons.Default.Queue, null) },
+                                    onClick     = { showMenu = false; onAddToQueue() }
+                                )
+                            }
                             DropdownMenuItem(
                                 text        = { Text("Add to Playlist") },
                                 leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
@@ -577,6 +621,73 @@ private fun PlaylistItem(
                 TextButton(onClick = { showConfirm = false }) { Text("Cancel") }
             }
         )
+    }
+}
+
+// ─── Queue tab ────────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QueueTab(
+    queue: List<MediaItem>,
+    currentSong: SongEntity?,
+    onPlayItem: (Int) -> Unit,
+    onRemove: (Int) -> Unit
+) {
+    if (queue.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Queue is empty", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
+
+    LazyColumn(Modifier.fillMaxSize()) {
+        itemsIndexed(queue) { index, item ->
+            val isCurrent = item.mediaId == currentSong?.id
+            val dismissState = rememberSwipeToDismissBoxState(
+                confirmValueChange = {
+                    if (it == SwipeToDismissBoxValue.EndToStart) {
+                        onRemove(index)
+                        true
+                    } else false
+                }
+            )
+
+            SwipeToDismissBox(
+                state = dismissState,
+                enableDismissFromStartToEnd = false,
+                backgroundContent = {
+                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd) {
+                        Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            ) {
+                ListItem(
+                    modifier = Modifier.clickable { onPlayItem(index) },
+                    headlineContent = {
+                        Text(item.mediaMetadata.title?.toString() ?: "Unknown", 
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                    },
+                    supportingContent = { Text(item.mediaMetadata.artist?.toString() ?: "Unknown") },
+                    leadingContent = {
+                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                            if (item.mediaMetadata.artworkUri != null) {
+                                AsyncImage(model = item.mediaMetadata.artworkUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            } else {
+                                Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    },
+                    trailingContent = {
+                        IconButton(onClick = { onRemove(index) }) {
+                            Icon(Icons.Default.RemoveCircleOutline, "Remove", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                )
+            }
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+        }
     }
 }
 

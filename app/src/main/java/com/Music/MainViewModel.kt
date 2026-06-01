@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import androidx.room.Room
@@ -60,12 +61,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         db.songDao(), db.playlistDao(), odesliService, DownloadManager(application), application
     )
 
-    // ── Song list ─────────────────────────────────────────────────────────────
     private val _songs = MutableStateFlow<List<SongEntity>>(emptyList())
     val songs: StateFlow<List<SongEntity>> = _songs.asStateFlow()
     private var isDragInProgress = false
 
-    // ── Download / import ─────────────────────────────────────────────────────
     private val _isDownloading    = MutableStateFlow(false)
     val isDownloading             = _isDownloading.asStateFlow()
     private val _downloadProgress = MutableStateFlow(0f)
@@ -73,11 +72,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isImporting      = MutableStateFlow(false)
     val isImporting               = _isImporting.asStateFlow()
 
-    // ── Errors ────────────────────────────────────────────────────────────────
     private val _errorEvents = MutableSharedFlow<String>()
     val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
 
-    // ── Playback ──────────────────────────────────────────────────────────────
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private val controller: MediaController?
         get() = if (controllerFuture?.isDone == true) controllerFuture?.get() else null
@@ -101,16 +98,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val repeatMode                = _repeatMode.asStateFlow()
     private var progressJob: Job? = null
 
-    // ── Lyrics ────────────────────────────────────────────────────────────────
+    // ── Queue ─────────────────────────────────────────────────────────────────
+    private val _queue = MutableStateFlow<List<MediaItem>>(emptyList())
+    val queue: StateFlow<List<MediaItem>> = _queue.asStateFlow()
+
     private val _lyrics = MutableStateFlow<LyricsState>(LyricsState.Idle)
     val lyrics: StateFlow<LyricsState> = _lyrics.asStateFlow()
 
-    // ── Selection ─────────────────────────────────────────────────────────────
     private val _selectedIds = MutableStateFlow<Set<String>>(emptySet())
     val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
     val inSelectionMode get() = _selectedIds.value.isNotEmpty()
 
-    // ── Playlists ─────────────────────────────────────────────────────────────
     private val _playlists = MutableStateFlow<List<PlaylistWithSongs>>(emptyList())
     val playlists: StateFlow<List<PlaylistWithSongs>> = _playlists.asStateFlow()
 
@@ -119,7 +117,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             repository.allSongs.collect { 
                 if (!isDragInProgress) {
                     _songs.value = it
-                    // Maintain current song reference if data changed
                     _currentSong.value = it.find { s -> s.id == _currentSong.value?.id }
                 }
             }
@@ -141,6 +138,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun setupController() {
         val player = controller ?: return
         _exoPlayer.value = player
+        updateQueue()
+
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 _isPlaying.value = playing
@@ -150,16 +149,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _currentSong.value  = _songs.value.find { it.id == mediaItem?.mediaId }
                 _playbackProgress.value = 0f
                 _currentPosition.value  = 0L
+                updateQueue()
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) _duration.value = player.duration
+                updateQueue()
             }
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                viewModelScope.launch {
-                    _errorEvents.emit("Playback error: ${error.localizedMessage}")
-                }
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                updateQueue()
             }
         })
+    }
+
+    private fun updateQueue() {
+        val player = controller ?: return
+        val items = mutableListOf<MediaItem>()
+        for (i in 0 until player.mediaItemCount) {
+            items.add(player.getMediaItemAt(i))
+        }
+        _queue.value = items
     }
 
     private fun startProgressUpdate() {
@@ -180,7 +188,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun stopProgressUpdate() { progressJob?.cancel() }
 
-    // ── Lyrics fetch ──────────────────────────────────────────────────────────
     private fun fetchLyrics(song: SongEntity) {
         viewModelScope.launch {
             _lyrics.value = LyricsState.Loading
@@ -209,7 +216,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ── Download / import ─────────────────────────────────────────────────────
     fun downloadSong(url: String) {
         viewModelScope.launch {
             _isDownloading.value = true
@@ -241,7 +247,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ── Playback ──────────────────────────────────────────────────────────────
     fun playSong(song: SongEntity) {
         val player = controller ?: return
         val items  = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
@@ -249,10 +254,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         val startIndex = items.indexOfFirst { it.mediaId == song.id }.coerceAtLeast(0)
         player.setMediaItems(items, startIndex, 0L)
-        player.shuffleModeEnabled = _isShuffled.value
-        player.repeatMode         = _repeatMode.value.toExo()
-        player.prepare()
-        player.play()
+        player.prepare(); player.play()
     }
 
     fun addToQueue(song: SongEntity) {
@@ -260,7 +262,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!File(song.filePath).exists()) return
         player.addMediaItem(buildMediaItem(song))
         if (player.playbackState == Player.STATE_IDLE || player.mediaItemCount == 1) {
-            player.prepare()
+            player.prepare(); player.play()
+        }
+        updateQueue()
+    }
+
+    fun removeFromQueue(songId: String) {
+        val player = controller ?: return
+        for (i in 0 until player.mediaItemCount) {
+            if (player.getMediaItemAt(i).mediaId == songId) {
+                player.removeMediaItem(i)
+                break
+            }
+        }
+        updateQueue()
+    }
+
+    fun removeFromQueueByIndex(index: Int) {
+        val player = controller ?: return
+        if (index in 0 until player.mediaItemCount) {
+            player.removeMediaItem(index)
+            updateQueue()
+        }
+    }
+
+    fun playFromQueue(index: Int) {
+        val player = controller ?: return
+        if (index in 0 until player.mediaItemCount) {
+            player.seekTo(index, 0L)
             player.play()
         }
     }
@@ -271,9 +300,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val nextIndex = if (player.mediaItemCount > 0) player.currentMediaItemIndex + 1 else 0
         player.addMediaItem(nextIndex, buildMediaItem(song))
         if (player.playbackState == Player.STATE_IDLE || player.mediaItemCount == 1) {
-            player.prepare()
-            player.play()
+            player.prepare(); player.play()
         }
+        updateQueue()
     }
 
     fun playSongList(songs: List<SongEntity>, startIndex: Int = 0) {
@@ -281,8 +310,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val items  = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
         player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
-        player.prepare()
-        player.play()
+        player.prepare(); player.play()
     }
 
     private fun buildMediaItem(s: SongEntity) = MediaItem.Builder()
@@ -294,8 +322,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 .setArtist(s.artist)
                 .setArtworkUri(s.thumbnailUrl?.let { Uri.parse(it) })
                 .build()
-        )
-        .build()
+        ).build()
 
     fun seekTo(fraction: Float) {
         val p = controller ?: return
@@ -311,7 +338,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playNext()     { controller?.seekToNext() }
 
     fun toggleShuffle() {
-        _isShuffled.value              = !_isShuffled.value
+        _isShuffled.value = !_isShuffled.value
         controller?.shuffleModeEnabled = _isShuffled.value
     }
 
@@ -330,41 +357,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         RepeatMode.ONE  -> Player.REPEAT_MODE_ONE
     }
 
-    // ── Reorder ───────────────────────────────────────────────────────────────
     fun startDrag() { isDragInProgress = true }
-
     fun moveSong(fromIndex: Int, toIndex: Int) {
         val list = _songs.value.toMutableList()
-        val movedSong = list.removeAt(fromIndex)
-        list.add(toIndex, movedSong)
+        list.add(toIndex, list.removeAt(fromIndex))
         _songs.value = list
-
-        // Sync player queue if it matches the current library list
-        controller?.let { player ->
-            if (player.mediaItemCount == list.size) {
-                player.moveMediaItem(fromIndex, toIndex)
-            }
-        }
+        controller?.let { if (it.mediaItemCount == list.size) it.moveMediaItem(fromIndex, toIndex) }
     }
 
     fun endDrag() {
         isDragInProgress = false
         viewModelScope.launch {
-            _songs.value.forEachIndexed { index, song ->
-                repository.updateSortOrder(song.id, index)
-            }
+            _songs.value.forEachIndexed { index, song -> repository.updateSortOrder(song.id, index) }
         }
     }
 
-    // ── Selection ─────────────────────────────────────────────────────────────
     fun toggleSelect(id: String) {
-        _selectedIds.value = _selectedIds.value.toMutableSet().also {
-            if (!it.add(id)) it.remove(id)
-        }
+        _selectedIds.value = _selectedIds.value.toMutableSet().also { if (!it.add(id)) it.remove(id) }
     }
-
-    fun selectAll()     { _selectedIds.value = _songs.value.map { it.id }.toSet() }
-    fun clearSelection(){ _selectedIds.value = emptySet() }
+    fun selectAll()      { _selectedIds.value = _songs.value.map { it.id }.toSet() }
+    fun clearSelection() { _selectedIds.value = emptySet() }
 
     fun deleteSelected() {
         val ids = _selectedIds.value
@@ -372,9 +384,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             controller?.let { player ->
                 val toRemove = mutableListOf<Int>()
-                for (i in 0 until player.mediaItemCount) {
-                    if (player.getMediaItemAt(i).mediaId in ids) toRemove.add(i)
-                }
+                for (i in 0 until player.mediaItemCount) if (player.getMediaItemAt(i).mediaId in ids) toRemove.add(i)
                 toRemove.sortedDescending().forEach { player.removeMediaItem(it) }
             }
             repository.deleteSongs(ids)
@@ -385,17 +395,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             controller?.let { player ->
                 for (i in 0 until player.mediaItemCount) {
-                    if (player.getMediaItemAt(i).mediaId == song.id) {
-                        player.removeMediaItem(i)
-                        break
-                    }
+                    if (player.getMediaItemAt(i).mediaId == song.id) { player.removeMediaItem(i); break }
                 }
             }
             repository.deleteSong(song)
         }
     }
 
-    // ── Playlists ─────────────────────────────────────────────────────────────
     fun createPlaylist(name: String) = viewModelScope.launch { repository.createPlaylist(name) }
     fun deletePlaylist(playlist: PlaylistEntity) = viewModelScope.launch { repository.deletePlaylist(playlist) }
     fun addSongToPlaylist(playlistId: Long, songId: String) = viewModelScope.launch { repository.addSongToPlaylist(playlistId, songId) }

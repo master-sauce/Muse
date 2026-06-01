@@ -17,8 +17,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +44,9 @@ fun PlaylistDetailScreen(
     val playlist     = playlists.find { it.playlist.id == playlistId }?.playlist
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying   by viewModel.isPlaying.collectAsState()
+    val queue       by viewModel.queue.collectAsState()
+
+    val haptic = LocalHapticFeedback.current
 
     Scaffold(
         topBar = {
@@ -110,19 +116,46 @@ fun PlaylistDetailScreen(
                 }
 
                 itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
-                    PlaylistSongItem(
-                        song      = song,
-                        isCurrent = song.id == currentSong?.id,
-                        isPlaying = isPlaying && song.id == currentSong?.id,
-                        onPlay    = {
-                            viewModel.playSongList(songs, index)
-                            onNavigateToPlayer()
-                        },
-                        onPlayNext = { viewModel.playNext(song) },
-                        onAddToQueue = { viewModel.addToQueue(song) },
-                        onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) },
-                        onShare   = { /* Handled below */ }
+                    val isInQueue = queue.any { it.mediaId == song.id }
+                    
+                    val dismissState = rememberSwipeToDismissBoxState(
+                        confirmValueChange = {
+                            if (it == SwipeToDismissBoxValue.StartToEnd) {
+                                viewModel.addToQueue(song)
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                false // Don't actually dismiss the item from the list
+                            } else false
+                        }
                     )
+
+                    SwipeToDismissBox(
+                        state = dismissState,
+                        enableDismissFromEndToStart = false,
+                        backgroundContent = {
+                            val color = when (dismissState.dismissDirection) {
+                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                                else -> Color.Transparent
+                            }
+                            Box(Modifier.fillMaxSize().background(color).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterStart) {
+                                Icon(Icons.Default.Queue, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                        }
+                    ) {
+                        PlaylistSongItem(
+                            song      = song,
+                            isCurrent = song.id == currentSong?.id,
+                            isPlaying = isPlaying && song.id == currentSong?.id,
+                            isInQueue = isInQueue,
+                            onPlay    = {
+                                viewModel.playSongList(songs, index)
+                                onNavigateToPlayer()
+                            },
+                            onPlayNext = { viewModel.playNext(song) },
+                            onAddToQueue = { viewModel.addToQueue(song) },
+                            onRemoveFromQueue = { viewModel.removeFromQueue(song.id) },
+                            onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
+                        )
+                    }
                 }
             }
         }
@@ -134,11 +167,12 @@ private fun PlaylistSongItem(
     song: SongEntity,
     isCurrent: Boolean,
     isPlaying: Boolean,
+    isInQueue: Boolean,
     onPlay: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
-    onRemove: () -> Unit,
-    onShare: () -> Unit
+    onRemoveFromQueue: () -> Unit,
+    onRemove: () -> Unit
 ) {
     val context = LocalContext.current
     var showMenu by remember { mutableStateOf(false) }
@@ -146,10 +180,19 @@ private fun PlaylistSongItem(
     ListItem(
         modifier = Modifier.clickable { onPlay() },
         headlineContent = {
-            Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f, fill = false))
+                if (isInQueue && !isCurrent) {
+                    Spacer(Modifier.width(8.dp))
+                    Icon(Icons.Default.Queue, null, 
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                }
+            }
         },
         supportingContent = { Text(song.artist, maxLines = 1) },
         leadingContent = {
@@ -183,11 +226,19 @@ private fun PlaylistSongItem(
                         leadingIcon = { Icon(Icons.Default.SkipNext, null) },
                         onClick = { onPlayNext(); showMenu = false }
                     )
-                    DropdownMenuItem(
-                        text = { Text("Add to Queue") },
-                        leadingIcon = { Icon(Icons.Default.Queue, null) },
-                        onClick = { onAddToQueue(); showMenu = false }
-                    )
+                    if (isInQueue) {
+                        DropdownMenuItem(
+                            text = { Text("Remove from Queue") },
+                            leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null) },
+                            onClick = { onRemoveFromQueue(); showMenu = false }
+                        )
+                    } else {
+                        DropdownMenuItem(
+                            text = { Text("Add to Queue") },
+                            leadingIcon = { Icon(Icons.Default.Queue, null) },
+                            onClick = { onAddToQueue(); showMenu = false }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Share") },
                         leadingIcon = { Icon(Icons.Default.Share, null) },
