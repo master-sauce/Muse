@@ -98,7 +98,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val repeatMode                = _repeatMode.asStateFlow()
     private var progressJob: Job? = null
 
-    // ── Queue ─────────────────────────────────────────────────────────────────
     private val _queue = MutableStateFlow<List<MediaItem>>(emptyList())
     val queue: StateFlow<List<MediaItem>> = _queue.asStateFlow()
 
@@ -114,7 +113,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         viewModelScope.launch {
-            repository.allSongs.collect { 
+            repository.allSongs.collect {
                 if (!isDragInProgress) {
                     _songs.value = it
                     _currentSong.value = it.find { s -> s.id == _currentSong.value?.id }
@@ -146,6 +145,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (playing) startProgressUpdate() else stopProgressUpdate()
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // CONSUME LOGIC: Remove all items before the current one
+                while (player.currentMediaItemIndex > 0) {
+                    player.removeMediaItem(0)
+                }
+
                 _currentSong.value  = _songs.value.find { it.id == mediaItem?.mediaId }
                 _playbackProgress.value = 0f
                 _currentPosition.value  = 0L
@@ -251,9 +255,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         val items  = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
-        
+
         val startIndex = items.indexOfFirst { it.mediaId == song.id }.coerceAtLeast(0)
-        player.setMediaItems(items, startIndex, 0L)
+
+        // When explicitly playing, we start a fresh "consumed" playlist from that point
+        val remainingItems = items.drop(startIndex)
+        player.setMediaItems(remainingItems, 0, 0L)
         player.prepare(); player.play()
     }
 
@@ -362,7 +369,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val list = _songs.value.toMutableList()
         list.add(toIndex, list.removeAt(fromIndex))
         _songs.value = list
-        controller?.let { if (it.mediaItemCount == list.size) it.moveMediaItem(fromIndex, toIndex) }
     }
 
     fun endDrag() {

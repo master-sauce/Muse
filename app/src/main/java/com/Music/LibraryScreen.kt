@@ -137,8 +137,8 @@ fun LibraryScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = selectedTab) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Songs") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Playlists") })
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Queue") })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Queue") })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Playlists") })
             }
 
             AnimatedContent(
@@ -172,17 +172,17 @@ fun LibraryScreen(
                         onEndDrag       = { viewModel.endDrag() },
                         onOpenAdd       = { showAdd = true }
                     )
-                    1 -> PlaylistsTab(
-                        playlists        = playlists,
-                        onPlaylistClick  = { pl -> onNavigateToPlaylist(pl.id) },
-                        onDeletePlaylist = { pl -> viewModel.deletePlaylist(pl) },
-                        onCreatePlaylist = { showNewPlaylistDialog = true }
-                    )
-                    2 -> QueueTab(
+                    1 -> QueueTab(
                         queue       = queue,
                         currentSong = currentSong,
                         onPlayItem  = { index -> viewModel.playFromQueue(index) },
                         onRemove    = { index -> viewModel.removeFromQueueByIndex(index) }
+                    )
+                    2 -> PlaylistsTab(
+                        playlists        = playlists,
+                        onPlaylistClick  = { pl -> onNavigateToPlaylist(pl.id) },
+                        onDeletePlaylist = { pl -> viewModel.deletePlaylist(pl) },
+                        onCreatePlaylist = { showNewPlaylistDialog = true }
                     )
                 }
             }
