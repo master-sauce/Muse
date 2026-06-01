@@ -145,9 +145,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (playing) startProgressUpdate() else stopProgressUpdate()
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // CONSUME LOGIC: Remove all items before the current one
-                while (player.currentMediaItemIndex > 0) {
-                    player.removeMediaItem(0)
+                // CONSUME LOGIC: Auto-remove previous items
+                val currentIndex = player.currentMediaItemIndex
+                if (currentIndex > 0) {
+                    player.removeMediaItems(0, currentIndex)
                 }
 
                 _currentSong.value  = _songs.value.find { it.id == mediaItem?.mediaId }
