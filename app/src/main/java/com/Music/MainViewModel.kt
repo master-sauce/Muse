@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -142,6 +143,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun setupController() {
         val player = controller ?: return
         _exoPlayer.value = player
+        
+        // Sync initial state
+        _isShuffled.value = player.shuffleModeEnabled
+        _repeatMode.value = when (player.repeatMode) {
+            Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+            Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+            else -> RepeatMode.NONE
+        }
+
         updateQueue()
 
         player.addListener(object : Player.Listener {
@@ -161,6 +171,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 updateQueue()
+            }
+            override fun onRepeatModeChanged(repeatMode: Int) {
+                _repeatMode.value = when (repeatMode) {
+                    Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                    Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                    else -> RepeatMode.NONE
+                }
+            }
+            override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                _isShuffled.value = shuffleModeEnabled
             }
         })
 
@@ -274,6 +294,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun enterManualQueueMode() {
         val player = controller ?: return
         if (manualQueueIds.isEmpty()) {
+            // Disable shuffle in queue mode
+            player.shuffleModeEnabled = false
+            _isShuffled.value = false
             _currentSong.value?.let { current ->
                 manualQueueIds.add(current.id)
                 val currentIndex = player.currentMediaItemIndex
@@ -392,27 +415,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (p.isPlaying) p.pause() else if (p.mediaItemCount > 0) p.play()
     }
 
-    fun playPrevious() { controller?.seekToPrevious() }
-    fun playNext()     { controller?.seekToNext() }
+    fun playPrevious() {
+        val p = controller ?: return
+        val timeline = p.currentTimeline
+        if (timeline.isEmpty) return
+
+        if (p.repeatMode == Player.REPEAT_MODE_ONE) {
+            p.seekTo(p.currentMediaItemIndex, 0L)
+        } else {
+            val prevIndex = timeline.getPreviousWindowIndex(
+                p.currentMediaItemIndex, p.repeatMode, p.shuffleModeEnabled
+            )
+            if (prevIndex != C.INDEX_UNSET) {
+                p.seekTo(prevIndex, 0L)
+            } else {
+                p.seekTo(timeline.getLastWindowIndex(p.shuffleModeEnabled), 0L)
+            }
+        }
+        p.play()
+    }
+
+    fun playNext() {
+        val p = controller ?: return
+        val timeline = p.currentTimeline
+        if (timeline.isEmpty) return
+
+        if (p.repeatMode == Player.REPEAT_MODE_ONE) {
+            p.seekTo(p.currentMediaItemIndex, 0L)
+        } else {
+            val nextIndex = timeline.getNextWindowIndex(
+                p.currentMediaItemIndex, p.repeatMode, p.shuffleModeEnabled
+            )
+            if (nextIndex != C.INDEX_UNSET) {
+                p.seekTo(nextIndex, 0L)
+            } else {
+                p.seekTo(timeline.getFirstWindowIndex(p.shuffleModeEnabled), 0L)
+            }
+        }
+        p.play()
+    }
 
     fun toggleShuffle() {
-        _isShuffled.value = !_isShuffled.value
-        controller?.shuffleModeEnabled = _isShuffled.value
+        val p = controller ?: return
+        if (_isQueueMode.value) {
+            p.shuffleModeEnabled = false
+            _isShuffled.value = false
+            return
+        }
+        val newState = !p.shuffleModeEnabled
+        p.shuffleModeEnabled = newState
+        _isShuffled.value = newState
     }
 
     fun toggleRepeat() {
-        _repeatMode.value = when (_repeatMode.value) {
-            RepeatMode.NONE -> RepeatMode.ALL
-            RepeatMode.ALL  -> RepeatMode.ONE
-            RepeatMode.ONE  -> RepeatMode.NONE
+        val p = controller ?: return
+        val nextMode = when (p.repeatMode) {
+            Player.REPEAT_MODE_OFF  -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL  -> Player.REPEAT_MODE_ONE
+            Player.REPEAT_MODE_ONE  -> Player.REPEAT_MODE_OFF
+            else -> Player.REPEAT_MODE_OFF
         }
-        controller?.repeatMode = _repeatMode.value.toExo()
-    }
-
-    private fun RepeatMode.toExo() = when (this) {
-        RepeatMode.NONE -> Player.REPEAT_MODE_OFF
-        RepeatMode.ALL  -> Player.REPEAT_MODE_ALL
-        RepeatMode.ONE  -> Player.REPEAT_MODE_ONE
+        p.repeatMode = nextMode
+        _repeatMode.value = when (nextMode) {
+            Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+            Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+            else -> RepeatMode.NONE
+        }
     }
 
     fun startDrag() { isDragInProgress = true }
