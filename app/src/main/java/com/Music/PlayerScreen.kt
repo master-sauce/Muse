@@ -340,8 +340,25 @@ fun PlayerScreen(
 
                     // ── Seek bar ─────────────────────────────────────────────
                     Column(Modifier.fillMaxWidth()) {
+                        var sliderPosition by remember { mutableFloatStateOf(0f) }
+                        var isDragging by remember { mutableStateOf(false) }
+
+                        LaunchedEffect(progress) {
+                            if (!isDragging) {
+                                sliderPosition = progress
+                            }
+                        }
+
                         Slider(
-                            value = progress, onValueChange = { viewModel.seekTo(it) },
+                            value = sliderPosition,
+                            onValueChange = {
+                                isDragging = true
+                                sliderPosition = it
+                            },
+                            onValueChangeFinished = {
+                                viewModel.seekTo(sliderPosition)
+                                isDragging = false
+                            },
                             modifier = Modifier.fillMaxWidth(),
                             colors   = SliderDefaults.colors(
                                 thumbColor         = MaterialTheme.colorScheme.primary,
@@ -350,7 +367,8 @@ fun PlayerScreen(
                             )
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(position.toTimeString(), style = MaterialTheme.typography.labelMedium,
+                            val displayPos = if (isDragging) (sliderPosition * duration).toLong() else position
+                            Text(displayPos.toTimeString(), style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(duration.toTimeString(), style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
