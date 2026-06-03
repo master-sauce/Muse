@@ -7,43 +7,33 @@ Muse is a freedom‑first music player that puts you back in control of your lib
 
 ---
 
+
 ## Why Muse?
 
-- **🎵 Own Your Music** — Download from Music links and keep the files forever. No streaming, no disappearing albums.
-- **📂 Bring Your Collection** — Import every song and playlist you already own. Muse plays your local files, no cloud required.
-- **🎤 Lyrics That Keep Up** — Real‑time synced lyrics that scroll with the beat, plus plain text fallbacks.
-- **📱 Mini Player, Big Impact** — A sleek bottom bar keeps your music at your fingertips while you browse.
-- **🔄 Playlists Your Way** — Create, reorder, and manage playlists exactly how you like.
+Other music apps — Streaming requires monthly payment. Songs disappear when licensing expires. Cloud storage quotas and sync limits. Ads, trackers, telemetry everywhere. Can't play local files alongside streaming.
+
+Muse — One download, yours forever. No subscription. Files live on your device. Nobody can take them away. No cloud. No quotas. Your storage, your rules. Nothing. No accounts, no tracking, no ads. Import anything from your device. Everything in one library.
 
 ---
 
-## Screenshots
+## What it does
 
-> *(Add your own screenshots here)*
+Download songs from links — Paste a Music URL. Muse grabs the audio and video and stores it locally. Yours to keep.
+Import your own files — Pick audio and video files or entire folders from your device. MP3, FLAC, M4A, MP4 whatever you have.
+Playlists — Group your songs however you want. Add, remove, reorder.
+Lyrics — Auto-fetched synced lyrics that scroll with the music. Works for most songs.
+Playback controls — Shuffle, repeat, seek, skip. Mini player in the library so you never lose your place.
+No accounts, no ads, no paywalls — Just a music player that respects your files.
 
 ---
 
-## Getting Started
+## Download
+The easiest way to get Muse is to download the APK from the Releases page on GitHub:
 
-### Prerequisites
+https://github.com/master-sauce/Muse/releases
 
-- Android Studio Hedgehog | 2023.1.1 or newer
-- JDK 17
-- Android SDK (API 24+)
+Grab the latest .apk file and install it on your Android device.
 
-### Clone & Build
-
-```bash
-git clone https://github.com/yourusername/Muse.git
-cd Muse
-./gradlew assembleDebug
-```
-
-### Install
-
-```bash
-adb install app/build/outputs/apk/debug/app-debug.apk
-```
 
 ---
 
@@ -124,7 +114,7 @@ app/src/main/java/com/Music/
 ## Acknowledgments
 
 - **ExoPlayer/Media3** — robust media playback foundation
-- **yt-dlp** — reliable audio extraction
+- **yt-dlp** — reliable audio and video extraction
 - **Odesli (song.link)** — cross‑platform link resolution
 - **LrcLib** — lyrics database
 - **Jetpack Compose** — declarative UI toolkit
