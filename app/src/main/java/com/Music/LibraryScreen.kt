@@ -124,10 +124,12 @@ fun LibraryScreen(
                 currentSong?.let { song ->
                     Column(Modifier.navigationBarsPadding()) {
                         MiniPlayer(
-                            song      = song,
-                            isPlaying = isPlaying,
-                            onToggle  = { viewModel.togglePlayback() },
-                            onTap     = onNavigateToPlayer
+                            song       = song,
+                            isPlaying  = isPlaying,
+                            onToggle   = { viewModel.togglePlayback() },
+                            onPrevious = { viewModel.playPrevious() },
+                            onNext     = { viewModel.playNext() },
+                            onTap      = onNavigateToPlayer
                         )
                     }
                 }
@@ -773,6 +775,8 @@ fun MiniPlayer(
     song: SongEntity,
     isPlaying: Boolean,
     onToggle: () -> Unit,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
     onTap: () -> Unit
 ) {
     Card(
@@ -824,20 +828,29 @@ fun MiniPlayer(
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = onToggle) {
-                AnimatedContent(
-                    targetState = isPlaying,
-                    transitionSpec = {
-                        (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn())
-                            .togetherWith(scaleOut() + fadeOut())
-                    },
-                    label = "miniPP"
-                ) { playing ->
-                    Icon(
-                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (playing) "Pause" else "Play",
-                        Modifier.size(28.dp)
-                    )
+            
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPrevious) {
+                    Icon(Icons.Default.SkipPrevious, "Previous")
+                }
+                IconButton(onClick = onToggle) {
+                    AnimatedContent(
+                        targetState = isPlaying,
+                        transitionSpec = {
+                            (scaleIn(spring(Spring.DampingRatioMediumBouncy)) + fadeIn())
+                                .togetherWith(scaleOut() + fadeOut())
+                        },
+                        label = "miniPP"
+                    ) { playing ->
+                        Icon(
+                            if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            if (playing) "Pause" else "Play",
+                            Modifier.size(28.dp)
+                        )
+                    }
+                }
+                IconButton(onClick = onNext) {
+                    Icon(Icons.Default.SkipNext, "Next")
                 }
             }
         }
