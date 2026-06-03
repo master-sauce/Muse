@@ -63,6 +63,26 @@ fun PlaylistDetailScreen(
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
                 }
             )
+        },
+        bottomBar = {
+            AnimatedVisibility(
+                visible = currentSong != null,
+                enter   = slideInVertically { it } + fadeIn(),
+                exit    = slideOutVertically { it } + fadeOut()
+            ) {
+                currentSong?.let { song ->
+                    Column(Modifier.navigationBarsPadding()) {
+                        MiniPlayer(
+                            song       = song,
+                            isPlaying  = isPlaying,
+                            onToggle   = { viewModel.togglePlayback() },
+                            onPrevious = { viewModel.playPrevious() },
+                            onNext     = { viewModel.playNext() },
+                            onTap      = onNavigateToPlayer
+                        )
+                    }
+                }
+            }
         }
     ) { padding ->
         if (songs.isEmpty()) {
