@@ -30,7 +30,7 @@ No accounts, no ads, no paywalls — Just a music player that respects your file
 ## Download
 The easiest way to get Muse is to download the APK from the Releases page on GitHub:
 
-https://github.com/master-sauce/Muse/releases
+https://github.com/master-sauce/Muse/releases/tag/releases
 
 Grab the latest .apk file and install it on your Android device.
 
