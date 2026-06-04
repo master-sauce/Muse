@@ -161,7 +161,12 @@ fun LibraryScreen(
                         inSelection     = inSelection,
                         playlists       = playlists.map { it.playlist },
                         queue           = queue,
-                        onPlay          = { song -> viewModel.playSong(song); onNavigateToPlayer() },
+                        onPlay          = { song -> 
+                            if (song.id != currentSong?.id) {
+                                viewModel.playSong(song)
+                            }
+                            onNavigateToPlayer()
+                        },
                         onPlayNext      = { song -> viewModel.playNext(song) },
                         onAddToQueue    = { song -> viewModel.addToQueue(song) },
                         onRemoveFromQueue = { id -> viewModel.removeFromQueue(id) },
@@ -177,7 +182,12 @@ fun LibraryScreen(
                     1 -> QueueTab(
                         queue       = queue,
                         currentSong = currentSong,
-                        onPlayItem  = { item -> viewModel.playFromQueue(item) },
+                        onPlayItem  = { item -> 
+                            if (item.mediaId != currentSong?.id) {
+                                viewModel.playFromQueue(item)
+                            }
+                            onNavigateToPlayer()
+                        },
                         onRemove    = { item -> viewModel.removeFromQueue(item.mediaId) }
                     )
                     2 -> PlaylistsTab(
@@ -849,7 +859,7 @@ fun MiniPlayer(
                         )
                     }
                 }
-                IconButton(onClick = onNext) {
+                IconButton(onClick = { onNext() }) {
                     Icon(Icons.Default.SkipNext, "Next")
                 }
             }

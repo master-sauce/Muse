@@ -168,7 +168,9 @@ fun PlaylistDetailScreen(
                             isPlaying = isPlaying && song.id == currentSong?.id,
                             isInQueue = isInQueue,
                             onPlay    = {
-                                viewModel.playSongList(songs, index)
+                                if (song.id != currentSong?.id) {
+                                    viewModel.playSongList(songs, index)
+                                }
                                 onNavigateToPlayer()
                             },
                             onPlayNext = { viewModel.playNext(song) },
