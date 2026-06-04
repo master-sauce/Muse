@@ -160,6 +160,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (playing) startProgressUpdate() else stopProgressUpdate()
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (_isQueueMode.value) {
+                    val currentIndex = player.currentMediaItemIndex
+                    if (currentIndex > 0) {
+                        for (i in 0 until currentIndex) {
+                            manualQueueIds.remove(player.getMediaItemAt(i).mediaId)
+                        }
+                        player.removeMediaItems(0, currentIndex)
+                    }
+                }
                 _currentSong.value  = _songs.value.find { it.id == mediaItem?.mediaId }
                 _playbackProgress.value = 0f
                 _currentPosition.value  = 0L
@@ -167,6 +176,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) _duration.value = player.duration
+                if (state == Player.STATE_ENDED && _isQueueMode.value) {
+                    val currentIndex = player.currentMediaItemIndex
+                    if (currentIndex != C.INDEX_UNSET) {
+                        manualQueueIds.remove(player.getMediaItemAt(currentIndex).mediaId)
+                        player.removeMediaItem(currentIndex)
+                    }
+                }
                 updateQueue()
             }
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -444,6 +460,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             if (nextIndex != C.INDEX_UNSET) {
                 p.seekTo(nextIndex, 0L)
+            } else if (_isQueueMode.value) {
+                val currentIndex = p.currentMediaItemIndex
+                if (currentIndex != C.INDEX_UNSET) {
+                    manualQueueIds.remove(p.getMediaItemAt(currentIndex).mediaId)
+                    p.removeMediaItem(currentIndex)
+                }
             } else {
                 p.seekTo(timeline.getFirstWindowIndex(p.shuffleModeEnabled), 0L)
             }
