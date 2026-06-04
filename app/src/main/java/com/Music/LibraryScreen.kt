@@ -188,7 +188,8 @@ fun LibraryScreen(
                             }
                             onNavigateToPlayer()
                         },
-                        onRemove    = { item -> viewModel.removeFromQueue(item.mediaId) }
+                        onRemove    = { item -> viewModel.removeFromQueue(item.mediaId) },
+                        onMove      = { from, to -> viewModel.moveQueueItem(from, to) }
                     )
                     2 -> PlaylistsTab(
                         playlists        = playlists,
@@ -653,13 +654,14 @@ private fun PlaylistItem(
 
 // ─── Queue tab ────────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun QueueTab(
     queue: List<MediaItem>,
     currentSong: SongEntity?,
     onPlayItem: (MediaItem) -> Unit,
-    onRemove: (MediaItem) -> Unit
+    onRemove: (MediaItem) -> Unit,
+    onMove: (Int, Int) -> Unit
 ) {
     if (queue.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -668,50 +670,72 @@ private fun QueueTab(
         return
     }
 
-    LazyColumn(Modifier.fillMaxSize()) {
-        itemsIndexed(queue) { _, item ->
-            val isCurrent = item.mediaId == currentSong?.id
-            val dismissState = rememberSwipeToDismissBoxState(
-                confirmValueChange = {
-                    if (it == SwipeToDismissBoxValue.EndToStart) {
-                        onRemove(item)
-                        true
-                    } else false
-                }
-            )
+    val lazyListState    = rememberLazyListState()
+    val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        onMove(from.index, to.index)
+    }
 
-            SwipeToDismissBox(
-                state = dismissState,
-                enableDismissFromStartToEnd = false,
-                backgroundContent = {
-                    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd) {
-                        Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
-                    }
-                }
-            ) {
-                ListItem(
-                    modifier = Modifier.clickable { onPlayItem(item) },
-                    headlineContent = {
-                        Text(item.mediaMetadata.title?.toString() ?: "Unknown", 
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
-                    },
-                    supportingContent = { Text(item.mediaMetadata.artist?.toString() ?: "Unknown") },
-                    leadingContent = {
-                        Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-                            if (item.mediaMetadata.artworkUri != null) {
-                                AsyncImage(model = item.mediaMetadata.artworkUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                            } else {
-                                Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    },
-                    trailingContent = {
-                        IconButton(onClick = { onRemove(item) }) {
-                            Icon(Icons.Default.RemoveCircleOutline, "Remove", tint = MaterialTheme.colorScheme.error)
-                        }
+    LazyColumn(
+        state    = lazyListState,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        itemsIndexed(queue, key = { _, item -> item.mediaId + item.hashCode() }) { index, item ->
+            ReorderableItem(reorderableState, key = item.mediaId + item.hashCode()) { isDragging ->
+                val isCurrent    = item.mediaId == currentSong?.id
+                val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "qDrag")
+                val dismissState = rememberSwipeToDismissBoxState(
+                    confirmValueChange = {
+                        if (it == SwipeToDismissBoxValue.EndToStart) {
+                            onRemove(item)
+                            true
+                        } else false
                     }
                 )
+
+                SwipeToDismissBox(
+                    state = dismissState,
+                    enableDismissFromStartToEnd = false,
+                    backgroundContent = {
+                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd) {
+                            Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                ) {
+                    ListItem(
+                        modifier = Modifier
+                            .shadow(elevation, RoundedCornerShape(12.dp))
+                            .background(if (isDragging) MaterialTheme.colorScheme.surface else Color.Transparent)
+                            .clickable { onPlayItem(item) },
+                        headlineContent = {
+                            Text(item.mediaMetadata.title?.toString() ?: "Unknown", 
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                        },
+                        supportingContent = { Text(item.mediaMetadata.artist?.toString() ?: "Unknown") },
+                        leadingContent = {
+                            Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                                if (item.mediaMetadata.artworkUri != null) {
+                                    AsyncImage(model = item.mediaMetadata.artworkUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                } else {
+                                    Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        },
+                        trailingContent = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { onRemove(item) }) {
+                                    Icon(Icons.Default.RemoveCircleOutline, "Remove", tint = MaterialTheme.colorScheme.error)
+                                }
+                                Icon(
+                                    Icons.Default.DragHandle,
+                                    null,
+                                    modifier = Modifier.draggableHandle().size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                                )
+                            }
+                        }
+                    )
+                }
             }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
         }

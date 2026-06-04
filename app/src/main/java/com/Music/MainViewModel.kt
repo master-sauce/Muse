@@ -190,12 +190,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun updateQueue() {
         val player = controller ?: return
         val items = mutableListOf<MediaItem>()
-        val seenIds = mutableSetOf<String>()
         for (i in 0 until player.mediaItemCount) {
-            val item = player.getMediaItemAt(i)
-            if (manualQueueIds.contains(item.mediaId) && seenIds.add(item.mediaId)) {
-                items.add(item)
-            }
+            items.add(player.getMediaItemAt(i))
         }
         _queue.value = items
         _isQueueMode.value = manualQueueIds.isNotEmpty()
@@ -486,8 +482,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun startDrag() { isDragInProgress = true }
     fun moveSong(fromIndex: Int, toIndex: Int) {
         val list = _songs.value.toMutableList()
-        list.add(toIndex, list.removeAt(fromIndex))
+        if (fromIndex !in list.indices || toIndex !in list.indices) return
+        val song = list.removeAt(fromIndex)
+        list.add(toIndex, song)
         _songs.value = list
+
+        val player = controller ?: return
+        if (!_isQueueMode.value) {
+            val playerIds = mutableSetOf<String>()
+            var playerFromIndex = -1
+            for (i in 0 until player.mediaItemCount) {
+                val id = player.getMediaItemAt(i).mediaId
+                playerIds.add(id)
+                if (id == song.id) playerFromIndex = i
+            }
+            if (playerFromIndex != -1) {
+                val playerToIndex = list.subList(0, toIndex).count { it.id in playerIds }
+                if (playerFromIndex != playerToIndex) {
+                    player.moveMediaItem(playerFromIndex, playerToIndex)
+                }
+            }
+        }
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val player = controller ?: return
+        if (fromIndex in 0 until player.mediaItemCount && toIndex in 0 until player.mediaItemCount) {
+            player.moveMediaItem(fromIndex, toIndex)
+            updateQueue()
+        }
     }
 
     fun endDrag() {
