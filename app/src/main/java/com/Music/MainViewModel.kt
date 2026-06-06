@@ -270,6 +270,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun downloadSong(url: String) {
         viewModelScope.launch {
+            if (repository.isSongDownloaded(url)) {
+                _errorEvents.emit("This song is already in your library")
+                return@launch
+            }
             _isDownloading.value = true
             try { repository.downloadAndSave(url) { _downloadProgress.value = it } }
             catch (e: Exception) {
@@ -284,7 +288,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun importLocalSong(uri: Uri) {
         viewModelScope.launch {
             _isImporting.value = true
-            try { repository.importFromUri(uri) }
+            try { 
+                val result = repository.importFromUri(uri)
+                if (result == "duplicate") {
+                    _errorEvents.emit("This song is already in your library")
+                }
+            }
             catch (e: Exception) { _errorEvents.emit("Import failed: ${e.localizedMessage}") }
             finally { _isImporting.value = false }
         }

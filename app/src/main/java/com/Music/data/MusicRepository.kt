@@ -31,6 +31,14 @@ class MusicRepository(
 
     suspend fun getPlaylistById(id: Long): PlaylistEntity? = playlistDao.getPlaylistById(id)
 
+    suspend fun isSongDownloaded(url: String): Boolean = withContext(Dispatchers.IO) {
+        songDao.getSongByUrl(url) != null
+    }
+
+    suspend fun isLocalSongImported(title: String, artist: String): Boolean = withContext(Dispatchers.IO) {
+        songDao.getSongByMetadata(title, artist) != null
+    }
+
     suspend fun downloadAndSave(url: String, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         var finalUrl = url
         var metaThumbnail: String? = null
@@ -65,7 +73,7 @@ class MusicRepository(
         ))
     }
 
-    suspend fun importFromUri(uri: Uri) = withContext(Dispatchers.IO) {
+    suspend fun importFromUri(uri: Uri): String? = withContext(Dispatchers.IO) {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
@@ -96,6 +104,11 @@ class MusicRepository(
                 ?: "Unknown Title"
             val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 ?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
+            
+            if (isLocalSongImported(title, artist)) {
+                return@withContext "duplicate"
+            }
+
             val durMs  = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
             
@@ -116,6 +129,7 @@ class MusicRepository(
                 sourceUrl    = uri.toString(),
                 sortOrder    = Int.MAX_VALUE
             ))
+            null
         } finally { retriever.release() }
     }
 

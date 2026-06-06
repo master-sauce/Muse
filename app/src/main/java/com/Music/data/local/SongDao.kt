@@ -17,6 +17,12 @@ interface SongDao {
     @Query("SELECT * FROM songs WHERE id = :id")
     suspend fun getSongById(id: String): SongEntity?
 
+    @Query("SELECT * FROM songs WHERE sourceUrl = :url")
+    suspend fun getSongByUrl(url: String): SongEntity?
+
+    @Query("SELECT * FROM songs WHERE title = :title AND artist = :artist")
+    suspend fun getSongByMetadata(title: String, artist: String): SongEntity?
+
     @Query("UPDATE songs SET sortOrder = :order WHERE id = :id")
     suspend fun updateSortOrder(id: String, order: Int)
 
