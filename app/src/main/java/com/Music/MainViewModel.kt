@@ -98,6 +98,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _repeatMode       = MutableStateFlow(RepeatMode.NONE)
     val repeatMode                = _repeatMode.asStateFlow()
     private var progressJob: Job? = null
+    private var lastMediaItemIndex = C.INDEX_UNSET
 
     private val _queue = MutableStateFlow<List<MediaItem>>(emptyList())
     val queue: StateFlow<List<MediaItem>> = _queue.asStateFlow()
@@ -143,6 +144,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun setupController() {
         val player = controller ?: return
         _exoPlayer.value = player
+        lastMediaItemIndex = player.currentMediaItemIndex
 
         // Sync initial state
         _isShuffled.value = player.shuffleModeEnabled
@@ -160,9 +162,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (playing) startProgressUpdate() else stopProgressUpdate()
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val oldSongId = _currentSong.value?.id
+                val newIndex = player.currentMediaItemIndex
+
+                if (_isQueueMode.value && oldSongId != null && oldSongId != mediaItem?.mediaId) {
+                    // Remove previous song from manual queue when moving forward (auto-transition or forward seek)
+                    val isForward = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
+                            (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK && (lastMediaItemIndex == C.INDEX_UNSET || newIndex > lastMediaItemIndex))
+
+                    if (isForward) {
+                        manualQueueIds.remove(oldSongId)
+                        for (i in player.mediaItemCount - 1 downTo 0) {
+                            if (player.getMediaItemAt(i).mediaId == oldSongId) {
+                                player.removeMediaItem(i)
+                            }
+                        }
+                    }
+                }
+
                 _currentSong.value  = _songs.value.find { it.id == mediaItem?.mediaId }
                 _playbackProgress.value = 0f
                 _currentPosition.value  = 0L
+                lastMediaItemIndex = player.currentMediaItemIndex
                 updateQueue()
             }
             override fun onPlaybackStateChanged(state: Int) {
