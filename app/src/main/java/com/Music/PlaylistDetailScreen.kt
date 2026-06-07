@@ -4,11 +4,14 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -17,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -28,9 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
 import com.Music.data.local.SongEntity
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlaylistDetailScreen(
     playlistId: Long,
@@ -38,8 +44,7 @@ fun PlaylistDetailScreen(
     onBack: () -> Unit,
     onNavigateToPlayer: () -> Unit
 ) {
-    val songsFlow    = remember(playlistId) { viewModel.getPlaylistSongs(playlistId) }
-    val songs        by songsFlow.collectAsState(emptyList<SongEntity>())
+    val songs        by viewModel.playlistSongs.collectAsState()
     val playlists    by viewModel.playlists.collectAsState()
     val playlist     = playlists.find { it.playlist.id == playlistId }?.playlist
     val currentSong  by viewModel.currentSong.collectAsState()
@@ -47,6 +52,10 @@ fun PlaylistDetailScreen(
     val queue        by viewModel.queue.collectAsState()
 
     val haptic = LocalHapticFeedback.current
+
+    LaunchedEffect(playlistId) {
+        viewModel.loadPlaylistSongs(playlistId)
+    }
 
     Scaffold(
         topBar = {
@@ -100,8 +109,14 @@ fun PlaylistDetailScreen(
                 }
             }
         } else {
+            val lazyListState = rememberLazyListState()
+            val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+                viewModel.movePlaylistSong(playlistId, from.index - 1, to.index - 1)
+            }
+
             LazyColumn(
-                Modifier.fillMaxSize().padding(padding),
+                state = lazyListState,
+                modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 item {
@@ -136,48 +151,56 @@ fun PlaylistDetailScreen(
                 }
 
                 itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
-                    // Show in-queue icon if song is in player's queue (and not current)
-                    val isInQueue = queue.any { it.mediaId == song.id && it.mediaId != currentSong?.id }
-                    
-                    val dismissState = rememberSwipeToDismissBoxState(
-                        confirmValueChange = {
-                            if (it == SwipeToDismissBoxValue.StartToEnd) {
-                                viewModel.addToQueue(song)
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                false
-                            } else false
-                        }
-                    )
-
-                    SwipeToDismissBox(
-                        state = dismissState,
-                        enableDismissFromEndToStart = false,
-                        backgroundContent = {
-                            val color = when (dismissState.dismissDirection) {
-                                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
-                                else -> Color.Transparent
+                    ReorderableItem(reorderableState, key = song.id) { isDragging ->
+                        val isInQueue = queue.any { it.mediaId == song.id && it.mediaId != currentSong?.id }
+                        
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = {
+                                if (it == SwipeToDismissBoxValue.StartToEnd) {
+                                    viewModel.addToQueue(song)
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    false
+                                } else false
                             }
-                            Box(Modifier.fillMaxSize().background(color).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterStart) {
-                                Icon(Icons.Default.Queue, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                            }
-                        }
-                    ) {
-                        PlaylistSongItem(
-                            song      = song,
-                            isCurrent = song.id == currentSong?.id,
-                            isPlaying = isPlaying && song.id == currentSong?.id,
-                            isInQueue = isInQueue,
-                            onPlay    = {
-                                if (song.id != currentSong?.id) {
-                                    viewModel.playSongList(songs, index)
-                                }
-                                onNavigateToPlayer()
-                            },
-                            onPlayNext = { viewModel.playNext(song) },
-                            onAddToQueue = { viewModel.addToQueue(song) },
-                            onRemoveFromQueue = { viewModel.removeFromQueue(song.id) },
-                            onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
                         )
+
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            enableDismissFromEndToStart = false,
+                            backgroundContent = {
+                                val color = when (dismissState.dismissDirection) {
+                                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                                    else -> Color.Transparent
+                                }
+                                Box(Modifier.fillMaxSize().background(color).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterStart) {
+                                    Icon(Icons.Default.Queue, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                }
+                            }
+                        ) {
+                            val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "plDragElev")
+                            PlaylistSongItem(
+                                song      = song,
+                                isCurrent = song.id == currentSong?.id,
+                                isPlaying = isPlaying && song.id == currentSong?.id,
+                                isInQueue = isInQueue,
+                                isDragging = isDragging,
+                                dragHandleModifier = Modifier.draggableHandle(
+                                    onDragStarted = { viewModel.startDrag() },
+                                    onDragStopped = { viewModel.endPlaylistDrag(playlistId) }
+                                ),
+                                elevation = elevation,
+                                onPlay    = {
+                                    if (song.id != currentSong?.id) {
+                                        viewModel.playSongList(songs, index)
+                                    }
+                                    onNavigateToPlayer()
+                                },
+                                onPlayNext = { viewModel.playNext(song) },
+                                onAddToQueue = { viewModel.addToQueue(song) },
+                                onRemoveFromQueue = { viewModel.removeFromQueue(song.id) },
+                                onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
+                            )
+                        }
                     }
                 }
             }
@@ -191,6 +214,9 @@ private fun PlaylistSongItem(
     isCurrent: Boolean,
     isPlaying: Boolean,
     isInQueue: Boolean,
+    isDragging: Boolean,
+    dragHandleModifier: Modifier = Modifier,
+    elevation: androidx.compose.ui.unit.Dp = 0.dp,
     onPlay: () -> Unit,
     onPlayNext: () -> Unit,
     onAddToQueue: () -> Unit,
@@ -201,7 +227,10 @@ private fun PlaylistSongItem(
     var showMenu by remember { mutableStateOf(false) }
 
     ListItem(
-        modifier = Modifier.clickable { onPlay() },
+        modifier = Modifier
+            .shadow(elevation, RoundedCornerShape(12.dp))
+            .background(if (isDragging) MaterialTheme.colorScheme.surface else Color.Transparent)
+            .clickable { onPlay() },
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -239,41 +268,49 @@ private fun PlaylistSongItem(
             }
         },
         trailingContent = {
-            Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(Icons.Default.MoreVert, "Options")
-                }
-                DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Play Next") },
-                        leadingIcon = { Icon(Icons.Default.SkipNext, null) },
-                        onClick = { onPlayNext(); showMenu = false }
-                    )
-                    if (isInQueue) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    IconButton(onClick = { showMenu = true }) {
+                        Icon(Icons.Default.MoreVert, "Options")
+                    }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Remove from Queue") },
-                            leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null) },
-                            onClick = { onRemoveFromQueue(); showMenu = false }
+                            text = { Text("Play Next") },
+                            leadingIcon = { Icon(Icons.Default.SkipNext, null) },
+                            onClick = { onPlayNext(); showMenu = false }
                         )
-                    } else {
+                        if (isInQueue) {
+                            DropdownMenuItem(
+                                text = { Text("Remove from Queue") },
+                                leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null) },
+                                onClick = { onRemoveFromQueue(); showMenu = false }
+                            )
+                        } else {
+                            DropdownMenuItem(
+                                text = { Text("Add to Queue") },
+                                leadingIcon = { Icon(Icons.Default.Queue, null) },
+                                onClick = { onAddToQueue(); showMenu = false }
+                            )
+                        }
                         DropdownMenuItem(
-                            text = { Text("Add to Queue") },
-                            leadingIcon = { Icon(Icons.Default.Queue, null) },
-                            onClick = { onAddToQueue(); showMenu = false }
+                            text = { Text("Share") },
+                            leadingIcon = { Icon(Icons.Default.Share, null) },
+                            onClick = { shareSong(context, song); showMenu = false }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Remove from Playlist", color = MaterialTheme.colorScheme.error) },
+                            leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null, tint = MaterialTheme.colorScheme.error) },
+                            onClick = { onRemove(); showMenu = false }
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Share") },
-                        leadingIcon = { Icon(Icons.Default.Share, null) },
-                        onClick = { shareSong(context, song); showMenu = false }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Remove from Playlist", color = MaterialTheme.colorScheme.error) },
-                        leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null, tint = MaterialTheme.colorScheme.error) },
-                        onClick = { onRemove(); showMenu = false }
-                    )
                 }
+                Icon(
+                    Icons.Default.DragHandle,
+                    null,
+                    modifier = dragHandleModifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                )
             }
         }
     )

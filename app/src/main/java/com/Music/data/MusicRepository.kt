@@ -186,4 +186,10 @@ class MusicRepository(
 
     suspend fun removeSongFromPlaylist(playlistId: Long, songId: String) =
         playlistDao.removeSongFromPlaylist(playlistId, songId)
+
+    suspend fun updatePlaylistSongOrder(playlistId: Long, songs: List<SongEntity>) = withContext(Dispatchers.IO) {
+        songs.forEachIndexed { index, song ->
+            playlistDao.updateSongPosition(playlistId, song.id, index)
+        }
+    }
 }

@@ -118,6 +118,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _playlists = MutableStateFlow<List<PlaylistWithSongs>>(emptyList())
     val playlists: StateFlow<List<PlaylistWithSongs>> = _playlists.asStateFlow()
 
+    private val _playlistSongs = MutableStateFlow<List<SongEntity>>(emptyList())
+    val playlistSongs: StateFlow<List<SongEntity>> = _playlistSongs.asStateFlow()
+    private var playlistSongsJob: Job? = null
+
     init {
         viewModelScope.launch {
             repository.allSongs.collect {
@@ -407,6 +411,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateQueue()
     }
 
+    fun playNext() {
+        val p = controller ?: return
+        val timeline = p.currentTimeline
+        if (timeline.isEmpty) return
+
+        if (p.repeatMode == Player.REPEAT_MODE_ONE) {
+            p.seekTo(p.currentMediaItemIndex, 0L)
+        } else {
+            val nextIndex = timeline.getNextWindowIndex(
+                p.currentMediaItemIndex, p.repeatMode, p.shuffleModeEnabled
+            )
+            if (nextIndex != C.INDEX_UNSET) {
+                p.seekTo(nextIndex, 0L)
+            } else {
+                p.seekTo(timeline.getFirstWindowIndex(p.shuffleModeEnabled), 0L)
+            }
+        }
+        p.play()
+    }
+
     fun playSongList(songs: List<SongEntity>, startIndex: Int = 0) {
         manualQueueIds.clear()
         _isQueueMode.value = false
@@ -465,26 +489,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         p.play()
     }
 
-    fun playNext() {
-        val p = controller ?: return
-        val timeline = p.currentTimeline
-        if (timeline.isEmpty) return
-
-        if (p.repeatMode == Player.REPEAT_MODE_ONE) {
-            p.seekTo(p.currentMediaItemIndex, 0L)
-        } else {
-            val nextIndex = timeline.getNextWindowIndex(
-                p.currentMediaItemIndex, p.repeatMode, p.shuffleModeEnabled
-            )
-            if (nextIndex != C.INDEX_UNSET) {
-                p.seekTo(nextIndex, 0L)
-            } else {
-                p.seekTo(timeline.getFirstWindowIndex(p.shuffleModeEnabled), 0L)
-            }
-        }
-        p.play()
-    }
-
     fun toggleShuffle() {
         val p = controller ?: return
         if (_isQueueMode.value) {
@@ -514,16 +518,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startDrag() { isDragInProgress = true }
+    
+    private fun syncPlayerWithMove(songId: String, fromListIndex: Int, toListIndex: Int, currentList: List<SongEntity>) {
+        val player = controller ?: return
+        if (_isQueueMode.value) return
+
+        val pCount = player.mediaItemCount
+        val idToIndex = mutableMapOf<String, Int>()
+        for (i in 0 until pCount) {
+            idToIndex[player.getMediaItemAt(i).mediaId] = i
+        }
+
+        val pFrom = idToIndex[songId] ?: return
+        var pTo = 0
+        for (i in toListIndex - 1 downTo 0) {
+            val idx = idToIndex[currentList[i].id]
+            if (idx != null) {
+                pTo = idx + 1
+                break
+            }
+        }
+
+        val finalTo = if (pTo > pFrom) pTo - 1 else pTo
+        if (pFrom != finalTo && finalTo in 0 until pCount) {
+            player.moveMediaItem(pFrom, finalTo)
+        }
+    }
+
     fun moveSong(fromIndex: Int, toIndex: Int) {
         val list = _songs.value.toMutableList()
-        list.add(toIndex, list.removeAt(fromIndex))
+        val song = list.removeAt(fromIndex)
+        list.add(toIndex, song)
         _songs.value = list
+        syncPlayerWithMove(song.id, fromIndex, toIndex, list)
+    }
+
+    fun moveQueueItem(fromIndex: Int, toIndex: Int) {
+        val player = controller ?: return
+        if (fromIndex in 0 until player.mediaItemCount && toIndex in 0 until player.mediaItemCount) {
+            player.moveMediaItem(fromIndex, toIndex)
+            updateQueue()
+        }
     }
 
     fun endDrag() {
         isDragInProgress = false
         viewModelScope.launch {
             _songs.value.forEachIndexed { index, song -> repository.updateSortOrder(song.id, index) }
+        }
+    }
+
+    fun loadPlaylistSongs(playlistId: Long) {
+        playlistSongsJob?.cancel()
+        playlistSongsJob = viewModelScope.launch {
+            repository.getPlaylistSongs(playlistId).collect {
+                if (!isDragInProgress) {
+                    _playlistSongs.value = it
+                }
+            }
+        }
+    }
+
+    fun movePlaylistSong(playlistId: Long, fromIndex: Int, toIndex: Int) {
+        val list = _playlistSongs.value.toMutableList()
+        val song = list.removeAt(fromIndex)
+        list.add(toIndex, song)
+        _playlistSongs.value = list
+        syncPlayerWithMove(song.id, fromIndex, toIndex, list)
+    }
+
+    fun endPlaylistDrag(playlistId: Long) {
+        isDragInProgress = false
+        viewModelScope.launch {
+            repository.updatePlaylistSongOrder(playlistId, _playlistSongs.value)
         }
     }
 
@@ -567,6 +634,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         progressJob?.cancel()
+        playlistSongsJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
     }
 }
