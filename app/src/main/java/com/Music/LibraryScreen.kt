@@ -25,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -67,11 +69,34 @@ fun LibraryScreen(
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    val filteredSongs = remember(songs, searchQuery) {
+        if (searchQuery.isEmpty()) songs
+        else songs.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            it.artist.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.importLocalSong(it) }
     }
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { viewModel.importFromFolder(it) }
+    }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != 0) {
+            isSearching = false
+            searchQuery = ""
+        }
+    }
+
+    LaunchedEffect(isSearching) {
+        if (isSearching) focusRequester.requestFocus()
     }
 
     Scaffold(
@@ -98,6 +123,38 @@ fun LibraryScreen(
                         }
                     }
                 )
+            } else if (isSearching && selectedTab == 0) {
+                TopAppBar(
+                    title = {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search songs...") },
+                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                cursorColor = MaterialTheme.colorScheme.primary
+                            ),
+                            textStyle = MaterialTheme.typography.bodyLarge
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { isSearching = false; searchQuery = "" }) {
+                            Icon(Icons.Default.ArrowBack, "Back")
+                        }
+                    },
+                    actions = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, "Clear")
+                            }
+                        }
+                    }
+                )
             } else {
                 CenterAlignedTopAppBar(
                     title = {
@@ -108,6 +165,11 @@ fun LibraryScreen(
                         )
                     },
                     actions = {
+                        if (selectedTab == 0 && songs.isNotEmpty()) {
+                            IconButton(onClick = { isSearching = true }) {
+                                Icon(Icons.Default.Search, contentDescription = "Search")
+                            }
+                        }
                         IconButton(onClick = { showAdd = true }) {
                             Icon(Icons.Default.Add, contentDescription = "Add Music")
                         }
@@ -202,7 +264,7 @@ fun LibraryScreen(
             ) { tab ->
                 when (tab) {
                     0 -> SongsTab(
-                        songs           = songs,
+                        songs           = filteredSongs,
                         currentSong     = currentSong,
                         isPlaying       = isPlaying,
                         selectedIds     = selectedIds,
@@ -225,7 +287,8 @@ fun LibraryScreen(
                         onStartDrag     = { viewModel.startDrag() },
                         onMove          = { from, to -> viewModel.moveSong(from, to) },
                         onEndDrag       = { viewModel.endDrag() },
-                        onOpenAdd       = { showAdd = true }
+                        onOpenAdd       = { showAdd = true },
+                        isFiltered      = searchQuery.isNotEmpty()
                     )
                     1 -> QueueTab(
                         queue       = queue,
@@ -297,12 +360,22 @@ private fun SongsTab(
     onStartDrag: () -> Unit,
     onMove: (Int, Int) -> Unit,
     onEndDrag: () -> Unit,
-    onOpenAdd: () -> Unit
+    onOpenAdd: () -> Unit,
+    isFiltered: Boolean = false
 ) {
     val context = LocalContext.current
     val haptic  = LocalHapticFeedback.current
 
-    if (songs.isEmpty()) { EmptyLibrary(onOpenAdd); return }
+    if (songs.isEmpty()) {
+        if (isFiltered) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No songs match your search", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            EmptyLibrary(onOpenAdd)
+        }
+        return
+    }
 
     val lazyListState    = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
@@ -359,7 +432,7 @@ private fun SongsTab(
                         inSelection        = inSelection,
                         isDragging         = isDragging,
                         dragHandleModifier = Modifier.draggableHandle(
-                            enabled       = !inSelection,
+                            enabled       = !inSelection && !isFiltered,
                             onDragStarted = { onStartDrag() },
                             onDragStopped = { onEndDrag() }
                         ),
