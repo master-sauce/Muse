@@ -37,6 +37,13 @@ import java.io.File
 
 enum class RepeatMode { NONE, ALL, ONE }
 
+data class DownloadTask(
+    val id: String,
+    val url: String,
+    val progress: Float = 0f,
+    val title: String? = null
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = Room.databaseBuilder(application, AppDatabase::class.java, "muse-db")
@@ -66,10 +73,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val songs: StateFlow<List<SongEntity>> = _songs.asStateFlow()
     private var isDragInProgress = false
 
-    private val _isDownloading    = MutableStateFlow(false)
-    val isDownloading             = _isDownloading.asStateFlow()
-    private val _downloadProgress = MutableStateFlow(0f)
-    val downloadProgress          = _downloadProgress.asStateFlow()
+    private val _activeDownloads = MutableStateFlow<Map<String, DownloadTask>>(emptyMap())
+    val activeDownloads = _activeDownloads.asStateFlow()
+    
+    val isDownloading = _activeDownloads.map { it.isNotEmpty() }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(), false)
+    
     private val _isImporting      = MutableStateFlow(false)
     val isImporting               = _isImporting.asStateFlow()
 
@@ -273,18 +281,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun downloadSong(url: String) {
-        viewModelScope.launch {
-            if (repository.isSongDownloaded(url)) {
-                _errorEvents.emit("This song is already in your library")
-                return@launch
-            }
-            _isDownloading.value = true
-            try { repository.downloadAndSave(url) { _downloadProgress.value = it } }
-            catch (e: Exception) {
-                _errorEvents.emit("Download failed: ${e.localizedMessage}")
-            } finally {
-                _isDownloading.value  = false
-                _downloadProgress.value = 0f
+        val urls = url.split(Regex("[\\n,]")).map { it.trim() }.filter { it.isNotBlank() }
+        urls.forEach { singleUrl ->
+            viewModelScope.launch {
+                if (repository.isSongDownloaded(singleUrl)) {
+                    _errorEvents.emit("Song already in library")
+                    return@launch
+                }
+                
+                val taskId = System.currentTimeMillis().toString() + singleUrl.hashCode()
+                _activeDownloads.update { it + (taskId to DownloadTask(taskId, singleUrl)) }
+                
+                try {
+                    repository.downloadAndSave(
+                        url = singleUrl,
+                        taskId = taskId,
+                        onTitleRetrieved = { title ->
+                            _activeDownloads.update { tasks ->
+                                tasks[taskId]?.let { tasks + (taskId to it.copy(title = title)) } ?: tasks
+                            }
+                        },
+                        onProgress = { progress ->
+                            _activeDownloads.update { tasks ->
+                                tasks[taskId]?.let { tasks + (taskId to it.copy(progress = progress)) } ?: tasks
+                            }
+                        }
+                    )
+                } catch (e: Exception) {
+                    _errorEvents.emit("Download failed: ${e.localizedMessage}")
+                } finally {
+                    _activeDownloads.update { it - taskId }
+                }
             }
         }
     }

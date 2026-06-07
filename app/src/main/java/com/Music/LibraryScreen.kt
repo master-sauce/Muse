@@ -51,16 +51,16 @@ fun LibraryScreen(
     onNavigateToPlayer: () -> Unit,
     onNavigateToPlaylist: (Long) -> Unit
 ) {
-    val songs         by viewModel.songs.collectAsState()
-    val currentSong   by viewModel.currentSong.collectAsState()
-    val isPlaying     by viewModel.isPlaying.collectAsState()
-    val isDownloading by viewModel.isDownloading.collectAsState()
-    val dlProgress    by viewModel.downloadProgress.collectAsState()
-    val isImporting   by viewModel.isImporting.collectAsState()
-    val selectedIds   by viewModel.selectedIds.collectAsState()
-    val inSelection   = selectedIds.isNotEmpty()
-    val playlists     by viewModel.playlists.collectAsState()
-    val queue         by viewModel.queue.collectAsState()
+    val songs           by viewModel.songs.collectAsState()
+    val currentSong     by viewModel.currentSong.collectAsState()
+    val isPlaying       by viewModel.isPlaying.collectAsState()
+    val isDownloading   by viewModel.isDownloading.collectAsState()
+    val activeDownloads by viewModel.activeDownloads.collectAsState()
+    val isImporting     by viewModel.isImporting.collectAsState()
+    val selectedIds     by viewModel.selectedIds.collectAsState()
+    val inSelection     = selectedIds.isNotEmpty()
+    val playlists       by viewModel.playlists.collectAsState()
+    val queue           by viewModel.queue.collectAsState()
 
     var selectedTab          by remember { mutableIntStateOf(0) }
     var showAdd              by remember { mutableStateOf(false) }
@@ -140,36 +140,46 @@ fun LibraryScreen(
             // Global Download Meter
             AnimatedVisibility(
                 visible = isDownloading || isImporting,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
+                enter   = expandVertically() + fadeIn(),
+                exit    = shrinkVertically() + fadeOut()
             ) {
                 Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                    modifier = Modifier.fillMaxWidth()
+                    color    = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
+                    modifier = Modifier.fillMaxWidth().shadow(4.dp)
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (isDownloading) "Downloading... ${dlProgress.toInt()}%" else "Importing...",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            Spacer(Modifier.weight(1f))
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
+                        if (isImporting) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                                Icon(Icons.Default.UploadFile, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Importing songs...", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.weight(1f))
+                                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                            }
                         }
-                        if (isDownloading) {
-                            Spacer(Modifier.height(4.dp))
-                            LinearProgressIndicator(
-                                progress = { dlProgress / 100f },
-                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                            )
+                        
+                        activeDownloads.values.forEach { task ->
+                            Column(Modifier.padding(vertical = 4.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Download, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text       = "${task.title ?: "Fetching info..."} • ${task.progress.toInt()}%",
+                                        style      = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines   = 1,
+                                        overflow   = TextOverflow.Ellipsis,
+                                        modifier   = Modifier.weight(1f)
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                LinearProgressIndicator(
+                                    progress   = { task.progress / 100f },
+                                    modifier   = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                    color      = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                )
+                            }
                         }
                     }
                 }
@@ -243,7 +253,7 @@ fun LibraryScreen(
             ModalBottomSheet(onDismissRequest = { showAdd = false }, sheetState = addSheetState) {
                 AddMusicSheet(
                     isDownloading    = isDownloading,
-                    downloadProgress = dlProgress,
+                    activeDownloads  = activeDownloads,
                     isImporting      = isImporting,
                     onDownload       = { url -> viewModel.downloadSong(url); showAdd = false },
                     onPickFile       = {
@@ -962,7 +972,7 @@ fun EmptyLibrary(onAdd: () -> Unit) {
 @Composable
 fun AddMusicSheet(
     isDownloading: Boolean,
-    downloadProgress: Float,
+    activeDownloads: Map<String, DownloadTask>,
     isImporting: Boolean,
     onDownload: (String) -> Unit,
     onPickFile: () -> Unit,
@@ -1009,38 +1019,47 @@ fun AddMusicSheet(
                             value         = urlText,
                             onValueChange = { urlText = it },
                             modifier      = Modifier.fillMaxWidth(),
-                            placeholder   = { Text("Paste Your Music link Here") },
-                            singleLine    = true,
+                            placeholder   = { Text("Paste links (one per line or comma separated)") },
+                            minLines      = 3,
+                            maxLines      = 10,
                             shape         = RoundedCornerShape(12.dp),
                             leadingIcon   = { Icon(Icons.Default.Link, null) }
                         )
                         Button(
                             onClick  = { onDownload(urlText); urlText = "" },
-                            enabled  = !isDownloading && urlText.isNotBlank(),
+                            enabled  = urlText.isNotBlank(),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
                             shape    = RoundedCornerShape(12.dp)
                         ) {
-                            if (isDownloading) {
-                                CircularProgressIndicator(
-                                    Modifier.size(18.dp),
-                                    color       = MaterialTheme.colorScheme.onPrimary,
-                                    strokeWidth = 2.dp
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Downloading ${downloadProgress.toInt()}%")
-                            } else {
-                                Icon(Icons.Default.Download, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Download")
-                            }
+                            Icon(Icons.Default.Download, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(if (activeDownloads.isNotEmpty()) "Add More to Download" else "Download")
                         }
-                        AnimatedVisibility(isDownloading) {
-                            LinearProgressIndicator(
-                                progress = { downloadProgress / 100f },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(4.dp))
+                        
+                        if (activeDownloads.isNotEmpty()) {
+                            Text(
+                                "Active Downloads (${activeDownloads.size})",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 8.dp)
                             )
+                            activeDownloads.values.forEach { task ->
+                                Column(Modifier.padding(vertical = 4.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            "${task.title ?: "Fetching info..."} • ${task.progress.toInt()}%",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { task.progress / 100f },
+                                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+                                    )
+                                }
+                            }
                         }
                     }
 

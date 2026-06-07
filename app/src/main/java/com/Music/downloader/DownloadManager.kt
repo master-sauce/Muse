@@ -9,29 +9,31 @@ import java.io.File
 
 class DownloadManager(private val context: Context) {
 
-    suspend fun downloadSong(url: String, onProgress: (Float, Long) -> Unit): File = withContext(Dispatchers.IO) {
+    suspend fun downloadSong(url: String, taskId: String, onProgress: (Float, Long) -> Unit): File = withContext(Dispatchers.IO) {
         val downloadDir = File(context.getExternalFilesDir(null), "downloads")
         if (!downloadDir.exists()) downloadDir.mkdirs()
 
-        val outputTemplate = "${downloadDir.absolutePath}/%(title)s.%(ext)s"
+        // Use the taskId in the filename to prevent race conditions during concurrent downloads
+        val outputTemplate = "${downloadDir.absolutePath}/$taskId.%(ext)s"
 
         val request = YoutubeDLRequest(url)
-        // Official format from library docs: best MP4 video + best M4A audio, fallback to best MP4, fallback to best
         request.addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
         request.addOption("-o", outputTemplate)
 
-        // Snapshot before download
+        // Snapshot before download to find the specific extension
         val before = downloadDir.listFiles()?.map { it.absolutePath }?.toSet() ?: emptySet()
 
         YoutubeDL.getInstance().execute(request) { progress, etaInSeconds, _ ->
             onProgress(progress, etaInSeconds)
         }
 
-        // Find new file — do not trust response.out
         val after = downloadDir.listFiles()?.map { it.absolutePath }?.toSet() ?: emptySet()
-        val newFile = after.subtract(before).firstOrNull()?.let { File(it) }
-            ?: throw Exception("Downloaded file not found in ${downloadDir.absolutePath}")
+        
+        // Find the file that starts with our taskId
+        val newFilePath = after.subtract(before).find { 
+            File(it).name.startsWith(taskId) 
+        } ?: throw Exception("Downloaded file not found for task $taskId")
 
-        newFile
+        File(newFilePath)
     }
 }

@@ -39,7 +39,12 @@ class MusicRepository(
         songDao.getSongByMetadata(title, artist) != null
     }
 
-    suspend fun downloadAndSave(url: String, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun downloadAndSave(
+        url: String,
+        taskId: String,
+        onTitleRetrieved: (String) -> Unit = {},
+        onProgress: (Float) -> Unit
+    ) = withContext(Dispatchers.IO) {
         var finalUrl = url
         var metaThumbnail: String? = null
         var metaArtist: String? = null
@@ -58,8 +63,10 @@ class MusicRepository(
 
         val info = try { YoutubeDL.getInstance().getInfo(YoutubeDLRequest(finalUrl)) }
         catch (_: Exception) { null }
+        
+        info?.title?.let { onTitleRetrieved(it) }
 
-        val file = downloadManager.downloadSong(finalUrl) { p, _ -> onProgress(p) }
+        val file = downloadManager.downloadSong(finalUrl, taskId) { p, _ -> onProgress(p) }
 
         songDao.insertSong(SongEntity(
             id           = info?.id ?: System.currentTimeMillis().toString(),
