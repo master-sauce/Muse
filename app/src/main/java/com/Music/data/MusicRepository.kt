@@ -64,6 +64,12 @@ class MusicRepository(
         val info = try { YoutubeDL.getInstance().getInfo(YoutubeDLRequest(finalUrl)) }
         catch (_: Exception) { null }
         
+        // Deeper check: see if we already have this song by its unique provider ID (e.g. YouTube video ID)
+        val infoId = info?.id
+        if (infoId != null && songDao.getSongById(infoId) != null) {
+            throw Exception("This song is already in your library")
+        }
+
         info?.title?.let { onTitleRetrieved(it) }
 
         val file = downloadManager.downloadSong(finalUrl, taskId) { p, _ -> onProgress(p) }

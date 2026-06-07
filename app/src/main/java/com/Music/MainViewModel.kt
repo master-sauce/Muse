@@ -3,7 +3,6 @@ package com.Music
 import android.app.Application
 import android.content.ComponentName
 import android.net.Uri
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
@@ -281,11 +280,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun downloadSong(url: String) {
-        val urls = url.split(Regex("[\\n,]")).map { it.trim() }.filter { it.isNotBlank() }
+        val urls = url.split(Regex("[\\n,]")).map { it.trim() }.filter { it.isNotBlank() }.distinct()
         urls.forEach { singleUrl ->
             viewModelScope.launch {
                 if (repository.isSongDownloaded(singleUrl)) {
                     _errorEvents.emit("Song already in library")
+                    return@launch
+                }
+                
+                if (_activeDownloads.value.values.any { it.url == singleUrl }) {
                     return@launch
                 }
                 
