@@ -73,7 +73,7 @@ app/src/main/java/com/Music/
 
 | Permission | Purpose |
 |-----------|---------|
-| `INTERNET` | Download/stream audio, fetch lyrics |
+| `INTERNET` | Fetch lyrics, metadata, and media extraction|
 | `READ_MEDIA_AUDIO` (API 33+) | Access local audio files |
 | `READ_EXTERNAL_STORAGE` (≤ API 32) | Legacy audio access |
 | `WRITE_EXTERNAL_STORAGE` (≤ API 28) | Store downloads |
