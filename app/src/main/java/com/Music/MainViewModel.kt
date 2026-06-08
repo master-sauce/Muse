@@ -173,6 +173,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             player.prepare()
                             _currentSong.value = song
                             _currentPosition.value = lastPos
+                            _duration.value = song.duration
+                            if (song.duration > 0) {
+                                _playbackProgress.value = lastPos.toFloat() / song.duration
+                            }
                         }
                     }
                 }
@@ -215,16 +219,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                _currentSong.value  = _songs.value.find { it.id == mediaItem?.mediaId }
-                _playbackProgress.value = 0f
-                _currentPosition.value  = 0L
-                lastMediaItemIndex = player.currentMediaItemIndex
+                val song = _songs.value.find { it.id == mediaItem?.mediaId }
+                _currentSong.value = song
                 
-                _currentSong.value?.let { repository.saveLastPlayed(it.id, 0L) }
+                // Sync with player's current position (don't force to 0)
+                val currentPos = player.currentPosition
+                _currentPosition.value = currentPos
+                
+                val dur = if (player.duration > 0) player.duration else (song?.duration ?: 0L)
+                _duration.value = dur
+                
+                if (dur > 0) {
+                    _playbackProgress.value = currentPos.toFloat() / dur
+                } else {
+                    _playbackProgress.value = 0f
+                }
+
+                lastMediaItemIndex = player.currentMediaItemIndex
+                song?.let { repository.saveLastPlayed(it.id, currentPos) }
                 updateQueue()
             }
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) _duration.value = player.duration
+                if (state == Player.STATE_READY) {
+                    val dur = player.duration
+                    val pos = player.currentPosition
+                    _duration.value = dur
+                    if (dur > 0) {
+                        _currentPosition.value = pos
+                        _playbackProgress.value = pos.toFloat() / dur
+                    }
+                }
                 updateQueue()
             }
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -265,15 +289,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var lastSaveTime = 0L
             while (true) {
                 controller?.let { p ->
-                    if (p.duration > 0) {
-                        _playbackProgress.value = p.currentPosition.toFloat() / p.duration
-                        _currentPosition.value  = p.currentPosition
-                        _duration.value         = p.duration
+                    val dur = p.duration
+                    val pos = p.currentPosition
+                    if (dur > 0) {
+                        _playbackProgress.value = pos.toFloat() / dur
+                        _currentPosition.value  = pos
+                        _duration.value         = dur
                         
                         // Save position every 5 seconds to SharedPreferences
                         val now = System.currentTimeMillis()
                         if (now - lastSaveTime > 5000) {
-                            _currentSong.value?.let { repository.saveLastPlayed(it.id, p.currentPosition) }
+                            _currentSong.value?.let { repository.saveLastPlayed(it.id, pos) }
                             lastSaveTime = now
                         }
                     }
@@ -692,6 +718,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun createPlaylist(name: String) = viewModelScope.launch { repository.createPlaylist(name) }
     fun deletePlaylist(playlist: PlaylistEntity) = viewModelScope.launch { repository.deletePlaylist(playlist) }
     fun addSongToPlaylist(playlistId: Long, songId: String) = viewModelScope.launch { repository.addSongToPlaylist(playlistId, songId) }
+    fun renamePlaylist(id: Long, name: String) = viewModelScope.launch { repository.renamePlaylist(id, name) }
     fun removeSongFromPlaylist(playlistId: Long, songId: String) = viewModelScope.launch { repository.removeSongFromPlaylist(playlistId, songId) }
     fun getPlaylistSongs(playlistId: Long) = repository.getPlaylistSongs(playlistId)
     suspend fun getPlaylistById(id: Long) = repository.getPlaylistById(id)
