@@ -146,11 +146,14 @@ This software is provided for educational and archival purposes. Respect creator
 
 ## Acknowledgments
 
-Acknowledgments
-ExoPlayer/Media3 — media playback - https://github.com/androidx/media
-yt-dlp — open-source media extraction - https://github.com/yt-dlp/yt-dlp
-LrcLib — lyrics database - https://lrclib.net
-Jetpack Compose & Material 3 — UI toolkit
+
+**ExoPlayer/Media3** — media playback - https://github.com/androidx/media
+
+**yt-dlp** — open-source media extraction - https://github.com/yt-dlp/yt-dlp
+
+**LrcLib** — lyrics database - https://lrclib.net
+
+**Jetpack Compose & Material 3** — UI toolkit
 
 ---
 
