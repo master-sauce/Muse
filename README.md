@@ -1,38 +1,35 @@
 
 # Muse
-
 Your Music, Your Rules. No Subscriptions. No Cloud Lock‑in.
 
-Muse is a freedom‑first music player that puts you back in control of your library. Download songs from anywhere, import your local files, and enjoy a sleek interface — all without a single monthly fee.
+Muse is a freedom-first music player that puts you back in control of your library. Import your local files, extract Media from supported sources, and enjoy a sleek interface — all without monthly fees or accounts.
 
----
+## Download
+Grab the latest APK from the Releases page.
+
+https://github.com/master-sauce/Muse/releases
 
 
 ## Why Muse?
+Other music apps lock you into monthly subscriptions, make songs disappear when licensing expires, impose cloud storage quotas, and bombard you with ads, trackers, and telemetry. Many won't even let you play local files alongside streaming content.
 
-Other music apps — Streaming requires monthly payment. Songs disappear when licensing expires. Cloud storage quotas and sync limits. Ads, trackers, telemetry everywhere. Can't play local files alongside streaming.
+Muse is different. One download and it's yours forever. No subscription. Your files live on your device where nobody can take them away. No cloud means no quotas — your storage, your rules. No accounts, no tracking, no ads. Import anything from your device and keep everything in one unified library.
 
-Muse — One download, yours forever. No subscription. Files live on your device. Nobody can take them away. No cloud. No quotas. Your storage, your rules. Nothing. No accounts, no tracking, no ads. Import anything from your device. Everything in one library.
+## What It Does
+🎵 Import Your Local Library
+Pick audio and video files or entire folders from your device. MP3, FLAC, M4A, MP4 — whatever you have.
 
----
+🔗 Extract from Supported Sources
+Paste a media URL. Muse uses yt-dlp (the open-source media extraction tool) to retrieve content for offline playback.
 
-## What it does
+🎧 Full-Featured Playback
+Playlists — Group songs however you want. Add, remove, reorder.
+Lyrics — Auto-fetched synced lyrics that scroll with the music.
+Background Playback — Mini player, shuffle, repeat, seek, skip. Full MediaSession support.
 
-Download songs from links — Paste a Music URL. Muse grabs the audio and video and stores it locally. Yours to keep.
-Import your own files — Pick audio and video files or entire folders from your device. MP3, FLAC, M4A, MP4 whatever you have.
-Playlists — Group your songs however you want. Add, remove, reorder.
-Lyrics — Auto-fetched synced lyrics that scroll with the music. Works for most songs.
-Playback controls — Shuffle, repeat, seek, skip. Mini player in the library so you never lose your place.
-No accounts, no ads, no paywalls — Just a music player that respects your files.
+🔒 No Accounts, No Ads, No Paywalls
+Just a music player that respects your files and your privacy.
 
----
-
-## Download
-The easiest way to get Muse is to download the APK from the Releases page on GitHub:
-
-https://github.com/master-sauce/Muse/releases/tag/releases
-
-Grab the latest .apk file and install it on your Android device.
 
 
 ---
@@ -129,14 +126,31 @@ SOFTWARE.
 
 ---
 
+
+## ⚠️ Legal & Fair Use Notice
+Muse is a tool for managing and playing media files. The included yt-dlp integration allows extraction of content from supported platforms for personal, offline use.
+
+By using this software, you agree that:
+
+You are solely responsible for complying with the Terms of Service of any platform you extract content from
+You will only extract content that you have the legal right to access and store, including:
+Content you own or have created
+Creative Commons or public domain works
+Content where the rights holder has granted permission for download
+You understand that unauthorized extraction of copyrighted material may violate laws in your jurisdiction
+The developers of Muse do not endorse, encourage, or support copyright infringement and provide this tool solely for legitimate personal media management
+This software is provided for educational and archival purposes. Respect creators' rights.
+
+---
+
+
 ## Acknowledgments
 
-- **ExoPlayer/Media3** — robust media playback foundation
-- **yt-dlp** — reliable audio and video extraction
-- **Odesli (song.link)** — cross‑platform link resolution
-- **LrcLib** — lyrics database
-- **Jetpack Compose** — declarative UI toolkit
-- **Material 3** — design system and theming
+Acknowledgments
+ExoPlayer/Media3 — media playback - https://github.com/androidx/media
+yt-dlp — open-source media extraction - https://github.com/yt-dlp/yt-dlp
+LrcLib — lyrics database - https://lrclib.net
+Jetpack Compose & Material 3 — UI toolkit
 
 ---
 
