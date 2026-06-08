@@ -157,6 +157,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _exoPlayer.value = player
         lastMediaItemIndex = player.currentMediaItemIndex
 
+        // Restore last session if player is empty
+        viewModelScope.launch {
+            _songs.filter { it.isNotEmpty() }.first()
+            if (player.mediaItemCount == 0) {
+                val lastId = repository.getLastPlayedSongId()
+                val lastPos = repository.getLastPlayedPosition()
+                if (lastId != null) {
+                    val song = repository.getSongById(lastId)
+                    if (song != null) {
+                        val items = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
+                        val startIndex = items.indexOfFirst { it.mediaId == lastId }.coerceAtLeast(0)
+                        if (items.isNotEmpty()) {
+                            player.setMediaItems(items, startIndex, lastPos)
+                            player.prepare()
+                            _currentSong.value = song
+                            _currentPosition.value = lastPos
+                        }
+                    }
+                }
+            }
+        }
+
         // Sync initial state
         _isShuffled.value = player.shuffleModeEnabled
         _repeatMode.value = when (player.repeatMode) {
@@ -170,14 +192,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 _isPlaying.value = playing
-                if (playing) startProgressUpdate() else stopProgressUpdate()
+                if (playing) startProgressUpdate() else {
+                    stopProgressUpdate()
+                    _currentSong.value?.let { repository.saveLastPlayed(it.id, player.currentPosition) }
+                }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val oldSongId = _currentSong.value?.id
                 val newIndex = player.currentMediaItemIndex
 
                 if (_isQueueMode.value && oldSongId != null && oldSongId != mediaItem?.mediaId) {
-                    // Remove previous song from manual queue when moving forward (auto-transition or forward seek)
                     val isForward = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
                             (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK && (lastMediaItemIndex == C.INDEX_UNSET || newIndex > lastMediaItemIndex))
 
@@ -195,6 +219,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _playbackProgress.value = 0f
                 _currentPosition.value  = 0L
                 lastMediaItemIndex = player.currentMediaItemIndex
+                
+                _currentSong.value?.let { repository.saveLastPlayed(it.id, 0L) }
                 updateQueue()
             }
             override fun onPlaybackStateChanged(state: Int) {
@@ -236,12 +262,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startProgressUpdate() {
         progressJob?.cancel()
         progressJob = viewModelScope.launch {
+            var lastSaveTime = 0L
             while (true) {
                 controller?.let { p ->
                     if (p.duration > 0) {
                         _playbackProgress.value = p.currentPosition.toFloat() / p.duration
                         _currentPosition.value  = p.currentPosition
                         _duration.value         = p.duration
+                        
+                        // Save position every 5 seconds to SharedPreferences
+                        val now = System.currentTimeMillis()
+                        if (now - lastSaveTime > 5000) {
+                            _currentSong.value?.let { repository.saveLastPlayed(it.id, p.currentPosition) }
+                            lastSaveTime = now
+                        }
                     }
                 }
                 delay(100)
@@ -491,6 +525,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Update flows immediately for a more responsive UI
             _currentPosition.value = newPosition
             _playbackProgress.value = fraction
+            _currentSong.value?.let { repository.saveLastPlayed(it.id, newPosition) }
         }
     }
 

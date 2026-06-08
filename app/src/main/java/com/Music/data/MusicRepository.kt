@@ -23,6 +23,8 @@ class MusicRepository(
     private val downloadManager: DownloadManager,
     private val context: Context
 ) {
+    private val prefs = context.getSharedPreferences("muse_prefs", Context.MODE_PRIVATE)
+
     val allSongs: Flow<List<SongEntity>> = songDao.getAllSongs()
     val playlistsWithSongs: Flow<List<PlaylistWithSongs>> = playlistDao.getPlaylistsWithSongs()
 
@@ -205,4 +207,16 @@ class MusicRepository(
             playlistDao.updateSongPosition(playlistId, song.id, index)
         }
     }
+
+    // ── Last played song ───────────────────────────────────────────────────
+    fun saveLastPlayed(songId: String, position: Long) {
+        prefs.edit()
+            .putString("last_song_id", songId)
+            .putLong("last_position", position)
+            .apply()
+    }
+
+    fun getLastPlayedSongId(): String? = prefs.getString("last_song_id", null)
+    fun getLastPlayedPosition(): Long = prefs.getLong("last_position", 0L)
+    suspend fun getSongById(id: String) = songDao.getSongById(id)
 }
