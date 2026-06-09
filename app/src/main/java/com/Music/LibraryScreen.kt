@@ -16,7 +16,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -313,7 +315,11 @@ fun LibraryScreen(
         }
 
         if (showAdd) {
-            ModalBottomSheet(onDismissRequest = { showAdd = false }, sheetState = addSheetState) {
+            ModalBottomSheet(
+                onDismissRequest = { showAdd = false },
+                sheetState = addSheetState,
+                contentWindowInsets = { WindowInsets.ime.union(WindowInsets.navigationBars) }
+            ) {
                 AddMusicSheet(
                     isDownloading    = isDownloading,
                     activeDownloads  = activeDownloads,
@@ -1053,18 +1059,22 @@ fun AddMusicSheet(
 ) {
     var tab     by remember { mutableIntStateOf(0) }
     var urlText by remember { mutableStateOf("") }
+    val scrollState = rememberScrollState()
 
     Column(
         Modifier
             .fillMaxWidth()
+            .verticalScroll(scrollState)
+            .imePadding()
             .padding(horizontal = 24.dp)
-            .padding(bottom = 48.dp),
+            .padding(bottom = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             "Add Music",
             style      = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 16.dp)
         )
         Spacer(Modifier.height(16.dp))
         TabRow(selectedTabIndex = tab) {
