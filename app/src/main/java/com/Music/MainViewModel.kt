@@ -418,7 +418,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun enterManualQueueMode() {
         val player = controller ?: return
         if (manualQueueIds.isEmpty()) {
-            // Disable shuffle in queue mode
             player.shuffleModeEnabled = false
             _isShuffled.value = false
             _currentSong.value?.let { current ->
@@ -430,9 +429,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (currentIndex > 0) {
                     player.removeMediaItems(0, currentIndex)
                 }
+                lastMediaItemIndex = player.currentMediaItemIndex
             }
         }
     }
+
 
     fun addToQueue(song: SongEntity) {
         val player = controller ?: return
