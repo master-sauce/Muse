@@ -75,6 +75,8 @@ fun LibraryScreen(
     var isSearching by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
+    val context = LocalContext.current
+
     val filteredSongs = remember(songs, searchQuery) {
         if (searchQuery.isEmpty()) songs
         else songs.filter {
@@ -165,6 +167,15 @@ fun LibraryScreen(
                             fontWeight = FontWeight.ExtraBold,
                             style = MaterialTheme.typography.headlineMedium
                         )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { openYouTube(context) }) {
+                            Icon(
+                                Icons.Default.SmartDisplay,
+                                contentDescription = "Open YouTube",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     },
                     actions = {
                         if (selectedTab == 0 && songs.isNotEmpty()) {
