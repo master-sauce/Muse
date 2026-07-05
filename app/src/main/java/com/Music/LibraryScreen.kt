@@ -44,6 +44,7 @@ import coil.compose.AsyncImage
 import com.Music.data.local.PlaylistEntity
 import com.Music.data.local.PlaylistWithSongs
 import com.Music.data.local.SongEntity
+import com.Music.downloader.PlaylistEntry
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
@@ -65,6 +66,8 @@ fun LibraryScreen(
     val inSelection     = selectedIds.isNotEmpty()
     val playlists       by viewModel.playlists.collectAsState()
     val queue           by viewModel.queue.collectAsState()
+    val playlistFetch   by viewModel.playlistFetch.collectAsState()
+    val batchDownload   by viewModel.batchDownload.collectAsState()
 
     var selectedTab          by remember { mutableIntStateOf(0) }
     var showAdd              by remember { mutableStateOf(false) }
@@ -101,6 +104,14 @@ fun LibraryScreen(
 
     LaunchedEffect(isSearching) {
         if (isSearching) focusRequester.requestFocus()
+    }
+
+    // Forward share intents emitted by the ViewModel (e.g. sharing the saved
+    // playlist-links file) to the system.
+    LaunchedEffect(Unit) {
+        viewModel.shareIntents.collect { intent ->
+            context.startActivity(intent)
+        }
     }
 
     Scaffold(
@@ -335,12 +346,19 @@ fun LibraryScreen(
                     isDownloading    = isDownloading,
                     activeDownloads  = activeDownloads,
                     isImporting      = isImporting,
+                    playlistFetch    = playlistFetch,
+                    batchDownload    = batchDownload,
                     onDownload       = { url -> viewModel.downloadSong(url); showAdd = false },
                     onPickFile       = {
                         pickFile.launch(arrayOf("audio/*", "video/*"))
                         showAdd = false
                     },
-                    onPickFolder     = { pickFolder.launch(null); showAdd = false }
+                    onPickFolder     = { pickFolder.launch(null); showAdd = false },
+                    onFetchPlaylist      = { url -> viewModel.fetchPlaylistLinks(url) },
+                    onClearPlaylistFetch = { viewModel.clearPlaylistFetch() },
+                    onSaveLinks          = { viewModel.saveAndShareLinksFile() },
+                    onDownloadPlaylist   = { viewModel.downloadPlaylistSongs() },
+                    onCancelPlaylist     = { viewModel.cancelPlaylistDownload() }
                 )
             }
         }
@@ -1064,12 +1082,20 @@ fun AddMusicSheet(
     isDownloading: Boolean,
     activeDownloads: Map<String, DownloadTask>,
     isImporting: Boolean,
+    playlistFetch: PlaylistFetchState,
+    batchDownload: BatchDownloadState,
     onDownload: (String) -> Unit,
     onPickFile: () -> Unit,
-    onPickFolder: () -> Unit
+    onPickFolder: () -> Unit,
+    onFetchPlaylist: (String) -> Unit,
+    onClearPlaylistFetch: () -> Unit,
+    onSaveLinks: () -> Unit,
+    onDownloadPlaylist: () -> Unit,
+    onCancelPlaylist: () -> Unit
 ) {
     var tab     by remember { mutableIntStateOf(0) }
     var urlText by remember { mutableStateOf("") }
+    var playlistUrlText by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
 
     Column(
@@ -1089,7 +1115,7 @@ fun AddMusicSheet(
         )
         Spacer(Modifier.height(16.dp))
         TabRow(selectedTabIndex = tab) {
-            listOf("Download", "File", "Folder").forEachIndexed { i, label ->
+            listOf("Download", "Playlist", "File", "Folder").forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
         }
@@ -1157,7 +1183,22 @@ fun AddMusicSheet(
                         }
                     }
 
-                    1 -> Column(
+                    1 -> PlaylistImportTab(
+                        playlistUrlText      = playlistUrlText,
+                        onPlaylistUrlChange  = { playlistUrlText = it },
+                        playlistFetch        = playlistFetch,
+                        batchDownload        = batchDownload,
+                        onFetchPlaylist      = { onFetchPlaylist(playlistUrlText) },
+                        onClearPlaylistFetch = {
+                            onClearPlaylistFetch()
+                            playlistUrlText = ""
+                        },
+                        onSaveLinks          = onSaveLinks,
+                        onDownloadPlaylist   = onDownloadPlaylist,
+                        onCancelPlaylist     = onCancelPlaylist
+                    )
+
+                    2 -> Column(
                         Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1224,6 +1265,186 @@ fun AddMusicSheet(
                                 Spacer(Modifier.width(8.dp)); Text("Choose Folder")
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Playlist import tab ──────────────────────────────────────────────────────
+
+@Composable
+private fun PlaylistImportTab(
+    playlistUrlText: String,
+    onPlaylistUrlChange: (String) -> Unit,
+    playlistFetch: PlaylistFetchState,
+    batchDownload: BatchDownloadState,
+    onFetchPlaylist: () -> Unit,
+    onClearPlaylistFetch: () -> Unit,
+    onSaveLinks: () -> Unit,
+    onDownloadPlaylist: () -> Unit,
+    onCancelPlaylist: () -> Unit
+) {
+    val entries = playlistFetch.entries
+    val hasEntries = entries.isNotEmpty()
+    val batchRunning = batchDownload.isRunning
+
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedTextField(
+            value         = playlistUrlText,
+            onValueChange = onPlaylistUrlChange,
+            modifier      = Modifier.fillMaxWidth(),
+            placeholder   = { Text("Paste YouTube playlist URL") },
+            singleLine    = true,
+            shape         = RoundedCornerShape(12.dp),
+            leadingIcon   = { Icon(Icons.Default.PlaylistPlay, null) },
+            trailingIcon  = {
+                if (playlistUrlText.isNotEmpty()) {
+                    IconButton(onClick = onClearPlaylistFetch) {
+                        Icon(Icons.Default.Clear, "Clear")
+                    }
+                }
+            }
+        )
+
+        Button(
+            onClick  = onFetchPlaylist,
+            enabled  = playlistUrlText.isNotBlank() && !playlistFetch.isLoading && !batchRunning,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            shape    = RoundedCornerShape(12.dp)
+        ) {
+            if (playlistFetch.isLoading) {
+                CircularProgressIndicator(
+                    Modifier.size(18.dp),
+                    color       = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp
+                )
+                Spacer(Modifier.width(8.dp)); Text("Fetching playlist...")
+            } else {
+                Icon(Icons.Default.Search, null)
+                Spacer(Modifier.width(8.dp)); Text("Fetch Playlist")
+            }
+        }
+
+        playlistFetch.error?.let { err ->
+            Text(
+                err,
+                color  = MaterialTheme.colorScheme.error,
+                style  = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        if (hasEntries) {
+            Text(
+                "${entries.size} songs found",
+                style      = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier   = Modifier.padding(top = 4.dp)
+            )
+            // Preview the first few entries
+            entries.take(10).forEach { entry ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "${entry.index}.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.width(32.dp)
+                    )
+                    Text(
+                        entry.title,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+            if (entries.size > 10) {
+                Text(
+                    "+${entries.size - 10} more",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 32.dp)
+                )
+            }
+
+            // Action buttons
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedButton(
+                    onClick  = onSaveLinks,
+                    enabled  = !batchRunning,
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape    = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.FileDownload, null)
+                    Spacer(Modifier.width(8.dp)); Text("Save Links")
+                }
+                Button(
+                    onClick  = onDownloadPlaylist,
+                    enabled  = !batchRunning,
+                    modifier = Modifier.weight(1f).height(52.dp),
+                    shape    = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Download, null)
+                    Spacer(Modifier.width(8.dp)); Text("Download All")
+                }
+            }
+
+            // Batch progress + cancel
+            if (batchRunning) {
+                Surface(
+                    color    = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                    shape    = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (batchDownload.isCancelling) "Cancelling..."
+                                else "${batchDownload.completed}/${batchDownload.total}",
+                                style      = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier   = Modifier.weight(1f)
+                            )
+                            if (!batchDownload.isCancelling) {
+                                TextButton(
+                                    onClick = onCancelPlaylist,
+                                    colors  = ButtonDefaults.textButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    )
+                                ) {
+                                    Icon(Icons.Default.Cancel, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(4.dp)); Text("Cancel")
+                                }
+                            }
+                        }
+                        batchDownload.currentTitle?.let { title ->
+                            Text(
+                                title,
+                                style    = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        val overall = if (batchDownload.total > 0)
+                            (batchDownload.completed + batchDownload.currentProgress / 100f) / batchDownload.total
+                        else 0f
+                        LinearProgressIndicator(
+                            progress = { overall.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp))
+                        )
                     }
                 }
             }

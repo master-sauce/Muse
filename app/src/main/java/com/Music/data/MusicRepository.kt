@@ -9,8 +9,7 @@ import android.util.Log
 import com.Music.data.local.*
 import com.Music.data.remote.OdesliService
 import com.Music.downloader.DownloadManager
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.Music.downloader.PlaylistEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -44,6 +43,7 @@ class MusicRepository(
     suspend fun downloadAndSave(
         url: String,
         taskId: String,
+        processId: String = taskId,
         onTitleRetrieved: (String) -> Unit = {},
         onProgress: (Float) -> Unit
     ) = withContext(Dispatchers.IO) {
@@ -63,9 +63,12 @@ class MusicRepository(
             } catch (_: Exception) {}
         }
 
-        val info = try { YoutubeDL.getInstance().getInfo(YoutubeDLRequest(finalUrl)) }
+        // Use the cancellable info fetch (processId-aware) so that a batch
+        // cancel can interrupt this phase too, not just the download phase.
+        val info = try { downloadManager.getVideoInfo(finalUrl, processId) }
+        catch (e: com.yausername.youtubedl_android.YoutubeDL.CanceledException) { throw e }
         catch (_: Exception) { null }
-        
+
         // Deeper check: see if we already have this song by its unique provider ID (e.g. YouTube video ID)
         val infoId = info?.id
         if (infoId != null && songDao.getSongById(infoId) != null) {
@@ -74,18 +77,62 @@ class MusicRepository(
 
         info?.title?.let { onTitleRetrieved(it) }
 
-        val file = downloadManager.downloadSong(finalUrl, taskId) { p, _ -> onProgress(p) }
+        val file = downloadManager.downloadSong(finalUrl, taskId, processId) { p, _ -> onProgress(p) }
 
         songDao.insertSong(SongEntity(
             id           = info?.id ?: System.currentTimeMillis().toString(),
             title        = info?.title ?: file.nameWithoutExtension,
             artist       = metaArtist ?: info?.uploader ?: "Unknown Artist",
             filePath     = file.absolutePath,
-            duration     = (info?.duration?.toLong() ?: 0L) * 1000L,
+            duration     = info?.duration?.times(1000L) ?: 0L,
             thumbnailUrl = metaThumbnail ?: info?.thumbnail,
             sourceUrl    = url,
             sortOrder    = Int.MAX_VALUE
         ))
+    }
+
+    // ── Playlist import ────────────────────────────────────────────────────
+
+    /** Fetch the list of entries in a YouTube playlist (no media downloaded). */
+    suspend fun fetchPlaylistEntries(playlistUrl: String): List<PlaylistEntry> =
+        downloadManager.fetchPlaylistEntries(playlistUrl)
+
+    /**
+     * Write the fetched playlist entries to a plain-text file, one URL per line,
+     * in playlist order. The file is placed in the app's external downloads
+     * directory so it can be shared via the existing FileProvider.
+     *
+     * Format: one canonical
+     * `https://www.youtube.com/watch?v=<id>&list=<listId>&index=<n>` URL per
+     * line. This is intentionally compatible with the existing
+     * [com.Music.MainViewModel.downloadSong] parser, which splits pasted text on
+     * `[\n,]` — so a user can later paste the file's contents back into the
+     * Download tab to re-import the same songs.
+     */
+    suspend fun saveLinksToFile(
+        entries: List<PlaylistEntry>,
+        playlistUrl: String
+    ): File = withContext(Dispatchers.IO) {
+        val dir = File(context.getExternalFilesDir(null), "downloads").also { it.mkdirs() }
+        val safeName = extractPlaylistId(playlistUrl)?.take(20)?.replace(Regex("[^A-Za-z0-9_-]"), "_")
+            ?: "playlist"
+        val file = File(dir, "${safeName}_links.txt")
+        file.writeText(entries.joinToString("\n") { it.url })
+        file
+    }
+
+    /** Best-effort cancellation of a running download by its processId. */
+    fun cancelDownload(processId: String) {
+        downloadManager.cancelDownload(processId)
+    }
+
+    private fun extractPlaylistId(url: String): String? {
+        val marker = "list="
+        val idx = url.indexOf(marker)
+        if (idx < 0) return null
+        val rest = url.substring(idx + marker.length)
+        val end = rest.indexOfFirst { it == '&' || it == '#' || it == '?' }
+        return if (end < 0) rest else rest.substring(0, end)
     }
 
     suspend fun importFromUri(uri: Uri): String? = withContext(Dispatchers.IO) {

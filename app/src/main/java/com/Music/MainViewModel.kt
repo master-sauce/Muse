@@ -2,7 +2,9 @@ package com.Music
 
 import android.app.Application
 import android.content.ComponentName
+import android.content.Intent
 import android.net.Uri
+import androidx.core.content.FileProvider
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.C
@@ -23,6 +25,7 @@ import com.Music.data.remote.LrcParser
 import com.Music.data.remote.LyricsState
 import com.Music.data.remote.OdesliService
 import com.Music.downloader.DownloadManager
+import com.Music.downloader.PlaylistEntry
 import com.Music.player.PlaybackService
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -41,6 +44,24 @@ data class DownloadTask(
     val url: String,
     val progress: Float = 0f,
     val title: String? = null
+)
+
+/** State of the playlist-link fetch operation in the Add Music > Playlist tab. */
+data class PlaylistFetchState(
+    val isLoading: Boolean = false,
+    val playlistUrl: String = "",
+    val entries: List<PlaylistEntry> = emptyList(),
+    val error: String? = null
+)
+
+/** State of a batch playlist download. */
+data class BatchDownloadState(
+    val total: Int = 0,
+    val completed: Int = 0,
+    val currentTitle: String? = null,
+    val currentProgress: Float = 0f,
+    val isRunning: Boolean = false,
+    val isCancelling: Boolean = false
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -79,6 +100,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     
     private val _isImporting      = MutableStateFlow(false)
     val isImporting               = _isImporting.asStateFlow()
+
+    // ── Playlist import state ──────────────────────────────────────────────
+    private val _playlistFetch = MutableStateFlow(PlaylistFetchState())
+    val playlistFetch: StateFlow<PlaylistFetchState> = _playlistFetch.asStateFlow()
+
+    private val _batchDownload = MutableStateFlow(BatchDownloadState())
+    val batchDownload: StateFlow<BatchDownloadState> = _batchDownload.asStateFlow()
+
+    @Volatile private var batchCancelFlag = false
+    private var currentProcessId: String? = null
+    private var batchJob: Job? = null
+
+    /** Share intents emitted by the ViewModel for the UI to startActivity on. */
+    private val _shareIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 4)
+    val shareIntents: SharedFlow<Intent> = _shareIntents.asSharedFlow()
 
     private val _errorEvents = MutableSharedFlow<String>()
     val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
@@ -399,6 +435,176 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try { repository.importFromFolder(uri) }
             catch (e: Exception) { _errorEvents.emit("Folder import failed: ${e.localizedMessage}") }
             finally { _isImporting.value = false }
+        }
+    }
+
+    // ── Playlist import ────────────────────────────────────────────────────
+
+    /** Fetch the list of song links from a YouTube playlist URL. */
+    fun fetchPlaylistLinks(url: String) {
+        val trimmed = url.trim()
+        if (trimmed.isEmpty()) {
+            _errorEvents.tryEmit("Please paste a playlist URL")
+            return
+        }
+        viewModelScope.launch {
+            _playlistFetch.value = PlaylistFetchState(isLoading = true, playlistUrl = trimmed)
+            try {
+                val entries = repository.fetchPlaylistEntries(trimmed)
+                _playlistFetch.value = PlaylistFetchState(
+                    isLoading = false,
+                    playlistUrl = trimmed,
+                    entries = entries
+                )
+            } catch (e: Exception) {
+                _playlistFetch.value = PlaylistFetchState(
+                    isLoading = false,
+                    playlistUrl = trimmed,
+                    error = e.localizedMessage ?: "Failed to fetch playlist"
+                )
+                _errorEvents.emit("Playlist fetch failed: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    /** Reset the playlist fetch state (e.g. when the user clears the field). */
+    fun clearPlaylistFetch() {
+        if (_batchDownload.value.isRunning) return
+        _playlistFetch.value = PlaylistFetchState()
+    }
+
+    /**
+     * Save the currently fetched playlist links to a text file (one URL per
+     * line) and emit a share intent so the UI can offer to share the file.
+     */
+    fun saveAndShareLinksFile() {
+        val state = _playlistFetch.value
+        if (state.entries.isEmpty()) {
+            _errorEvents.tryEmit("Fetch a playlist first")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val file = repository.saveLinksToFile(state.entries, state.playlistUrl)
+                val context = getApplication<Application>()
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TITLE, file.name)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                _shareIntents.emit(Intent.createChooser(shareIntent, "Share playlist links"))
+            } catch (e: Exception) {
+                _errorEvents.emit("Failed to save links file: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    /**
+     * Start downloading every song in the fetched playlist, one at a time.
+     * Skips songs already in the library. Honors [cancelPlaylistDownload]:
+     * when the user cancels, the current download is killed and all remaining
+     * songs are skipped.
+     */
+    fun downloadPlaylistSongs() {
+        val entries = _playlistFetch.value.entries
+        if (entries.isEmpty()) {
+            _errorEvents.tryEmit("Fetch a playlist first")
+            return
+        }
+        if (_batchDownload.value.isRunning) return
+
+        batchCancelFlag = false
+        batchJob?.cancel()
+        batchJob = viewModelScope.launch {
+            _batchDownload.value = BatchDownloadState(
+                total = entries.size,
+                completed = 0,
+                isRunning = true
+            )
+            var completed = 0
+            try {
+                for (entry in entries) {
+                    if (batchCancelFlag) break
+
+                    // Skip songs already in the library
+                    if (repository.isSongDownloaded(entry.url)) {
+                        completed++
+                        _batchDownload.value = _batchDownload.value.copy(completed = completed)
+                        continue
+                    }
+
+                    val processId = "batch_${System.currentTimeMillis()}_${entry.index}"
+                    currentProcessId = processId
+                    _batchDownload.value = _batchDownload.value.copy(
+                        completed = completed,
+                        currentTitle = entry.title,
+                        currentProgress = 0f
+                    )
+
+                    try {
+                        repository.downloadAndSave(
+                            url = entry.url,
+                            taskId = processId,
+                            processId = processId,
+                            onProgress = { progress ->
+                                _batchDownload.value = _batchDownload.value.copy(currentProgress = progress)
+                            }
+                        )
+                        completed++
+                        _batchDownload.value = _batchDownload.value.copy(
+                            completed = completed,
+                            currentProgress = 100f
+                        )
+                    } catch (e: com.yausername.youtubedl_android.YoutubeDL.CanceledException) {
+                        // Cancelled by the user — stop the whole batch.
+                        break
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        // Job cancelled (e.g. by the watchdog below) — propagate.
+                        throw e
+                    } catch (e: Exception) {
+                        // Per-song failure: report but continue with the next song.
+                        _errorEvents.emit("Skipped \"${entry.title}\": ${e.localizedMessage}")
+                        completed++
+                        _batchDownload.value = _batchDownload.value.copy(completed = completed)
+                    }
+                }
+            } finally {
+                val wasCancelled = batchCancelFlag
+                _batchDownload.value = BatchDownloadState(
+                    total = entries.size,
+                    completed = completed,
+                    isRunning = false,
+                    isCancelling = false
+                )
+                currentProcessId = null
+                if (wasCancelled) _errorEvents.emit("Download cancelled — $completed/${entries.size} done")
+            }
+        }
+    }
+
+    /**
+     * Cancel an in-progress playlist batch download: kills the current download
+     * and skips all remaining songs.
+     *
+     * After asking yt-dlp to stop, a watchdog waits a short grace period; if
+     * the batch coroutine is still running (the yt-dlp child process can
+     * sometimes linger after `destroy()`), the coroutine is cancelled outright
+     * so the UI never gets stuck in the "Cancelling" state.
+     */
+    fun cancelPlaylistDownload() {
+        if (!_batchDownload.value.isRunning) return
+        batchCancelFlag = true
+        _batchDownload.value = _batchDownload.value.copy(isCancelling = true)
+        currentProcessId?.let { repository.cancelDownload(it) }
+
+        val job = batchJob
+        viewModelScope.launch {
+            delay(3000)
+            if (job?.isActive == true && batchCancelFlag) {
+                job.cancel()
+            }
         }
     }
 
