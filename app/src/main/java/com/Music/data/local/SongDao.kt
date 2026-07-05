@@ -8,6 +8,9 @@ interface SongDao {
     @Query("SELECT * FROM songs ORDER BY sortOrder ASC")
     fun getAllSongs(): Flow<List<SongEntity>>
 
+    @Query("SELECT * FROM songs ORDER BY sortOrder ASC")
+    suspend fun getAllSongsOnce(): List<SongEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSong(song: SongEntity)
 

@@ -94,6 +94,9 @@ fun LibraryScreen(
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { viewModel.importFromFolder(it) }
     }
+    val pickLinksFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.importLinksFile(it) }
+    }
 
     LaunchedEffect(selectedTab) {
         if (selectedTab != 0) {
@@ -358,7 +361,12 @@ fun LibraryScreen(
                     onClearPlaylistFetch = { viewModel.clearPlaylistFetch() },
                     onSaveLinks          = { viewModel.saveAndShareLinksFile() },
                     onDownloadPlaylist   = { viewModel.downloadPlaylistSongs() },
-                    onCancelPlaylist     = { viewModel.cancelPlaylistDownload() }
+                    onCancelPlaylist     = { viewModel.cancelPlaylistDownload() },
+                    onExportLibrary      = { viewModel.exportLibraryLinks() },
+                    onImportLinksFile    = {
+                        pickLinksFile.launch(arrayOf("text/plain", "text/*", "*/*"))
+                        showAdd = false
+                    }
                 )
             }
         }
@@ -1091,7 +1099,9 @@ fun AddMusicSheet(
     onClearPlaylistFetch: () -> Unit,
     onSaveLinks: () -> Unit,
     onDownloadPlaylist: () -> Unit,
-    onCancelPlaylist: () -> Unit
+    onCancelPlaylist: () -> Unit,
+    onExportLibrary: () -> Unit,
+    onImportLinksFile: () -> Unit
 ) {
     var tab     by remember { mutableIntStateOf(0) }
     var urlText by remember { mutableStateOf("") }
@@ -1115,7 +1125,7 @@ fun AddMusicSheet(
         )
         Spacer(Modifier.height(16.dp))
         TabRow(selectedTabIndex = tab) {
-            listOf("Download", "Playlist", "File", "Folder").forEachIndexed { i, label ->
+            listOf("Link", "List", "File", "Folder").forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
             }
         }
@@ -1195,7 +1205,9 @@ fun AddMusicSheet(
                         },
                         onSaveLinks          = onSaveLinks,
                         onDownloadPlaylist   = onDownloadPlaylist,
-                        onCancelPlaylist     = onCancelPlaylist
+                        onCancelPlaylist     = onCancelPlaylist,
+                        onExportLibrary      = onExportLibrary,
+                        onImportLinksFile    = onImportLinksFile
                     )
 
                     2 -> Column(
@@ -1284,7 +1296,9 @@ private fun PlaylistImportTab(
     onClearPlaylistFetch: () -> Unit,
     onSaveLinks: () -> Unit,
     onDownloadPlaylist: () -> Unit,
-    onCancelPlaylist: () -> Unit
+    onCancelPlaylist: () -> Unit,
+    onExportLibrary: () -> Unit,
+    onImportLinksFile: () -> Unit
 ) {
     val entries = playlistFetch.entries
     val hasEntries = entries.isNotEmpty()
@@ -1294,6 +1308,55 @@ private fun PlaylistImportTab(
         Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // ── Transfer library between phones ────────────────────────────────
+        Surface(
+            color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape    = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Transfer library",
+                    style      = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Export every downloaded song's link to a text file, or import a links file from another phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick  = onExportLibrary,
+                        enabled  = !batchRunning,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape    = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.UploadFile, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp)); Text("Export")
+                    }
+                    Button(
+                        onClick  = onImportLinksFile,
+                        enabled  = !batchRunning,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape    = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.FileOpen, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp)); Text("Import")
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
+        Text(
+            "From a YouTube playlist",
+            style      = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold
+        )
         OutlinedTextField(
             value         = playlistUrlText,
             onValueChange = onPlaylistUrlChange,

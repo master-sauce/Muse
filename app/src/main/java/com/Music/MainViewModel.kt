@@ -513,6 +513,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _errorEvents.tryEmit("Fetch a playlist first")
             return
         }
+        startBatchDownload(entries)
+    }
+
+    /**
+     * Core batch-download engine shared by the playlist importer and the
+     * links-file importer. Downloads [entries] one at a time, skipping songs
+     * already in the library, and reports progress via [_batchDownload].
+     */
+    private fun startBatchDownload(entries: List<PlaylistEntry>) {
         if (_batchDownload.value.isRunning) return
 
         batchCancelFlag = false
@@ -605,6 +614,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (job?.isActive == true && batchCancelFlag) {
                 job.cancel()
             }
+        }
+    }
+
+    // ── Library export / import (transfer songs between phones) ─────────────
+
+    /**
+     * Export every downloaded song's source URL to a text file and emit a
+     * share intent so the user can send the file to another phone. The file
+     * uses the same one-URL-per-line format that the importer understands.
+     */
+    fun exportLibraryLinks() {
+        if (_batchDownload.value.isRunning) {
+            _errorEvents.tryEmit("Wait for the current download to finish first")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val file = repository.exportLibraryLinks()
+                if (file == null) {
+                    _errorEvents.emit("No downloadable links in your library to export")
+                    return@launch
+                }
+                val context = getApplication<Application>()
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TITLE, file.name)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                _shareIntents.emit(Intent.createChooser(shareIntent, "Share library links"))
+            } catch (e: Exception) {
+                _errorEvents.emit("Failed to export library: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    /**
+     * Import a links file picked by the user via a document-open intent.
+     * Reads the URLs, converts them to [PlaylistEntry]s (title left blank —
+     * it will be filled in by yt-dlp during download), and feeds them into
+     * the shared batch-download engine. Already-downloaded songs are skipped
+     * by the engine itself.
+     */
+    fun importLinksFile(uri: Uri) {
+        if (_batchDownload.value.isRunning) {
+            _errorEvents.tryEmit("A download is already running")
+            return
+        }
+        viewModelScope.launch {
+            val urls = repository.importLinksFromFile(uri)
+            if (urls.isEmpty()) {
+                _errorEvents.emit("No links found in that file")
+                return@launch
+            }
+            // Clear any stale playlist fetch so the UI shows the batch panel.
+            _playlistFetch.value = PlaylistFetchState()
+            val entries = urls.mapIndexed { i, u -> PlaylistEntry(url = u, title = u, index = i) }
+            startBatchDownload(entries)
         }
     }
 

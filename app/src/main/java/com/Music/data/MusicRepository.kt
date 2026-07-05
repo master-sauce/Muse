@@ -121,6 +121,63 @@ class MusicRepository(
         file
     }
 
+    /**
+     * Export every downloaded song's [SongEntity.sourceUrl] to a plain-text
+     * file, one URL per line, in library order. Only songs whose sourceUrl
+     * looks like a remote URL (starts with "http") are included — local
+     * imports (file/folder) have no shareable link and are skipped.
+     *
+     * The resulting file is written to the app's external downloads directory
+     * so it can be shared via the existing FileProvider, and is in the exact
+     * same one-URL-per-line format that [com.Music.MainViewModel.downloadSong]
+     * and the playlist batch downloader already understand — so importing it
+     * on another phone reproduces the same library.
+     *
+     * @return the written [File], or null if there were no exportable links.
+     */
+    suspend fun exportLibraryLinks(): File? = withContext(Dispatchers.IO) {
+        val songs = songDao.getAllSongsOnce()
+        val links = songs.asSequence()
+            .map { it.sourceUrl }
+            .filter { it.isNotBlank() && it.startsWith("http") }
+            .distinct()
+            .toList()
+        if (links.isEmpty()) return@withContext null
+
+        val dir = File(context.getExternalFilesDir(null), "downloads").also { it.mkdirs() }
+        val stamp = System.currentTimeMillis()
+        val file = File(dir, "muse_library_$stamp.txt")
+        file.writeText(links.joinToString("\n"))
+        file
+    }
+
+    /**
+     * Read a links file (one URL per line, also tolerating comma-separated
+     * values) picked by the user via a document-open intent, and return the
+     * list of non-blank URLs in file order. This is the import counterpart to
+     * [exportLibraryLinks] and to [saveLinksToFile]; the returned list can be
+     * fed directly into the batch downloader.
+     *
+     * @return the parsed URLs, or an empty list if the file could not be read
+     *         or contained no usable links.
+     */
+    suspend fun importLinksFromFile(uri: Uri): List<String> = withContext(Dispatchers.IO) {
+        try {
+            val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+                stream.bufferedReader().readText()
+            } ?: return@withContext emptyList()
+            text.split(Regex("[\\n,]"))
+                .asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() && it.startsWith("http") }
+                .distinct()
+                .toList()
+        } catch (e: Exception) {
+            Log.e("MusicRepository", "importLinksFromFile failed", e)
+            emptyList()
+        }
+    }
+
     /** Best-effort cancellation of a running download by its processId. */
     fun cancelDownload(processId: String) {
         downloadManager.cancelDownload(processId)
