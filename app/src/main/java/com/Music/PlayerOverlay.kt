@@ -14,8 +14,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,6 +72,15 @@ fun PlayerOverlay(
     // fixes the "half-open" bug when back is pressed mid-drag).
     val dragOffsetPx = remember { Animatable(0f) }
 
+    // True while the user's finger is actively dragging. While this is set we
+    // keep BOTH the mini bar and the full player composed so the gesture
+    // target is never disposed mid-drag (which would cancel the drag and snap
+    // the player back even though the finger is still down). The user can
+    // therefore slide all the way from collapsed → expanded (or back) in a
+    // single continuous motion and the UI keeps tracking the finger until
+    // release.
+    var isDragging by remember { mutableStateOf(false) }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxHeightPx = with(density) { maxHeight.toPx() }
 
@@ -82,6 +93,9 @@ fun PlayerOverlay(
         // is no jump when a drag triggers onExpand/onCollapse or when back is
         // pressed mid-drag. Snappy and non-bouncy for a responsive feel.
         LaunchedEffect(expanded) {
+            // Don't fight the user: if a drag is in progress, the drag end
+            // callback is what flips `expanded` and drives the snap animation.
+            if (isDragging) return@LaunchedEffect
             val currentProgress = (expansion.value - dragOffsetPx.value / dragRangePx)
                 .coerceIn(0f, 1f)
             dragOffsetPx.snapTo(0f)
@@ -110,8 +124,10 @@ fun PlayerOverlay(
         }
 
         // ── Full player ───────────────────────────────────────────────────────
-        // Slides up from below the viewport as progress → 1.
-        if (progress > 0.001f) {
+        // Slides up from below the viewport as progress → 1. Kept composed
+        // while a drag is in progress so the gesture target is never disposed
+        // mid-drag (which would cancel the drag and snap the player back).
+        if (progress > 0.001f || isDragging) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -128,28 +144,34 @@ fun PlayerOverlay(
                     onNavigateToLyrics = onNavigateToLyrics,
                     showBackChevron    = progress > 0.6f,
                     onDragDown         = { dy ->
+                        isDragging = true
                         scope.launch { dragOffsetPx.snapTo(dragOffsetPx.value + dy) }
                     },
                     onDragEnd = {
                         val total = expansion.value - dragOffsetPx.value / dragRangePx
+                        isDragging = false
                         scope.launch {
                             if (total < 0.5f) onCollapse() else dragOffsetPx.animateTo(0f)
                         }
                     },
                     onDragCancel = {
+                        isDragging = false
                         scope.launch { dragOffsetPx.animateTo(0f) }
                     },
                     // Let the user drag down from the album art too (YT Music).
                     onArtworkDragDown = { dy ->
+                        isDragging = true
                         scope.launch { dragOffsetPx.snapTo(dragOffsetPx.value + dy) }
                     },
                     onArtworkDragEnd = {
                         val total = expansion.value - dragOffsetPx.value / dragRangePx
+                        isDragging = false
                         scope.launch {
                             if (total < 0.5f) onCollapse() else dragOffsetPx.animateTo(0f)
                         }
                     },
                     onArtworkDragCancel = {
+                        isDragging = false
                         scope.launch { dragOffsetPx.animateTo(0f) }
                     }
                 )
@@ -157,8 +179,9 @@ fun PlayerOverlay(
         }
 
         // ── Mini player ───────────────────────────────────────────────────────
-        // Slides up following the finger and fades out as progress → 1.
-        if (progress < 0.999f) {
+        // Slides up following the finger and fades out as progress → 1. Kept
+        // composed while a drag is in progress for the same reason as above.
+        if (progress < 0.999f || isDragging) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -182,15 +205,18 @@ fun PlayerOverlay(
                         onNext     = { viewModel.playNext() },
                         onTap      = onExpand,
                         onDragUp   = { dy ->
+                            isDragging = true
                             scope.launch { dragOffsetPx.snapTo(dragOffsetPx.value + dy) }
                         },
                         onDragEnd = {
                             val total = expansion.value - dragOffsetPx.value / dragRangePx
+                            isDragging = false
                             scope.launch {
                                 if (total > 0.35f) onExpand() else dragOffsetPx.animateTo(0f)
                             }
                         },
                         onDragCancel = {
+                            isDragging = false
                             scope.launch { dragOffsetPx.animateTo(0f) }
                         }
                     )
