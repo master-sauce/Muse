@@ -203,29 +203,20 @@ fun LibraryScreen(
                     }
                 )
             }
-        },
-        bottomBar = {
-            AnimatedVisibility(
-                visible = currentSong != null,
-                enter   = slideInVertically { it } + fadeIn(),
-                exit    = slideOutVertically { it } + fadeOut()
-            ) {
-                currentSong?.let { song ->
-                    Column(Modifier.navigationBarsPadding()) {
-                        MiniPlayer(
-                            song       = song,
-                            isPlaying  = isPlaying,
-                            onToggle   = { viewModel.togglePlayback() },
-                            onPrevious = { viewModel.playPrevious() },
-                            onNext     = { viewModel.playNext() },
-                            onTap      = onNavigateToPlayer
-                        )
-                    }
-                }
-            }
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        // When a song is loaded, the morphing player overlay renders a mini
+        // bar at the bottom of the screen; reserve space so list content
+        // isn't hidden behind it.
+        val bottomInset = if (currentSong != null) 84.dp else 0.dp
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(
+                    top    = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding() + bottomInset
+                )
+        ) {
             // Global Download Meter
             AnimatedVisibility(
                 visible = isDownloading || isImporting,
@@ -965,7 +956,6 @@ fun AddToPlaylistDialog(
 
 // ─── Mini player ──────────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MiniPlayer(
     song: SongEntity,
@@ -973,13 +963,32 @@ fun MiniPlayer(
     onToggle: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
-    onTap: () -> Unit
+    onTap: () -> Unit,
+    onDragUp: ((Float) -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
+    onDragCancel: (() -> Unit)? = null
 ) {
+    // Use a small custom touch slop so the drag engages quickly without the
+    // user having to hold/move a lot before the player starts following.
+    val touchSlop = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
+    val dragModifier = if (onDragUp != null && onDragEnd != null && onDragCancel != null) {
+        // verticalDrag uses the Initial pointer pass so it can intercept an
+        // upward drag without blocking taps on the play/pause/skip buttons.
+        Modifier.verticalDrag(
+            touchSlop    = touchSlop,
+            onDrag       = onDragUp,
+            onDragEnd    = onDragEnd,
+            onDragCancel = onDragCancel
+        ).combinedClickable(onClick = onTap, onLongClick = {})
+    } else {
+        Modifier.combinedClickable(onClick = onTap, onLongClick = {})
+    }
+
     Card(
         modifier  = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .combinedClickable(onClick = onTap, onLongClick = {}),
+            .then(dragModifier),
         shape     = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(8.dp),
         colors    = CardDefaults.cardColors(

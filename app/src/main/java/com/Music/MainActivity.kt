@@ -9,7 +9,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.app.ActivityCompat
@@ -49,110 +52,109 @@ fun MusicApp() {
     val viewModel: MainViewModel = viewModel()
     val context = LocalContext.current
 
+    // The morphing player overlay lives above the nav graph so it can slide
+    // up from the mini bar regardless of which screen is showing.
+    var playerExpanded by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         viewModel.errorEvents.collectLatest {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
         }
     }
 
-    NavHost(
-        navController    = navController,
-        startDestination = Screen.Library.route
-    ) {
-
-        composable(
-            route              = Screen.Library.route,
-            enterTransition    = { fadeIn(tween(200)) },
-            exitTransition     = { fadeOut(tween(120)) },
-            popEnterTransition = { fadeIn(tween(200)) },
-            popExitTransition  = { fadeOut(tween(120)) }
+    Box(Modifier.fillMaxSize()) {
+        NavHost(
+            navController    = navController,
+            startDestination = Screen.Library.route
         ) {
-            LibraryScreen(
-                viewModel            = viewModel,
-                onNavigateToPlayer   = { navController.navigate(Screen.Player.route) },
-                onNavigateToPlaylist = { id -> navController.navigate(Screen.PlaylistDetail.route(id)) }
-            )
+
+            composable(
+                route              = Screen.Library.route,
+                enterTransition    = { fadeIn(tween(200)) },
+                exitTransition     = { fadeOut(tween(120)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition  = { fadeOut(tween(120)) }
+            ) {
+                LibraryScreen(
+                    viewModel            = viewModel,
+                    onNavigateToPlayer   = { playerExpanded = true },
+                    onNavigateToPlaylist = { id -> navController.navigate(Screen.PlaylistDetail.route(id)) }
+                )
+            }
+
+            composable(
+                route = Screen.Lyrics.route,
+                enterTransition = {
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness    = Spring.StiffnessMediumLow
+                        )
+                    ) { it } + fadeIn(tween(0))
+                },
+                exitTransition     = { fadeOut(tween(120)) },
+                popEnterTransition = { fadeIn(tween(0)) },
+                popExitTransition  = {
+                    slideOutVertically(
+                        animationSpec = tween(220, easing = FastOutLinearInEasing)
+                    ) { it } + fadeOut(tween(160))
+                }
+            ) {
+                LyricsScreen(
+                    viewModel      = viewModel,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                        // Re-open the player overlay behind the lyrics sheet so
+                        // dismissing lyrics returns to the full player.
+                        playerExpanded = true
+                    }
+                )
+            }
+
+            composable(
+                route     = Screen.PlaylistDetail.route,
+                arguments = listOf(
+                    navArgument(Screen.PlaylistDetail.ARG) { type = NavType.LongType }
+                ),
+                enterTransition = {
+                    slideInHorizontally(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness    = Spring.StiffnessMediumLow
+                        )
+                    ) { it } + fadeIn(tween(0))
+                },
+                exitTransition     = { fadeOut(tween(120)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition  = {
+                    slideOutHorizontally(
+                        animationSpec = tween(220, easing = FastOutLinearInEasing)
+                    ) { it } + fadeOut(tween(160))
+                }
+            ) { back ->
+                val playlistId = back.arguments?.getLong(Screen.PlaylistDetail.ARG)
+                    ?: return@composable
+                PlaylistDetailScreen(
+                    playlistId         = playlistId,
+                    viewModel          = viewModel,
+                    onBack             = { navController.popBackStack() },
+                    onNavigateToPlayer = { playerExpanded = true }
+                )
+            }
         }
 
-        composable(
-            route = Screen.Player.route,
-            enterTransition = {
-                // full off-screen start + instant opacity = zero bleed-through from library
-                slideInVertically(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness    = Spring.StiffnessMediumLow
-                    )
-                ) { it } + fadeIn(tween(0))
-            },
-            exitTransition    = { fadeOut(tween(120)) },
-            popEnterTransition = { fadeIn(tween(0)) },
-            popExitTransition = {
-                slideOutVertically(
-                    animationSpec = tween(240, easing = FastOutLinearInEasing)
-                ) { it } + fadeOut(tween(180))
+        // Morphing player overlay on top of the nav graph. When the user opens
+        // lyrics we collapse it first so the lyrics nav screen is visible, and
+        // re-expand it when lyrics is dismissed.
+        PlayerOverlay(
+            viewModel          = viewModel,
+            expanded           = playerExpanded,
+            onExpand           = { playerExpanded = true },
+            onCollapse         = { playerExpanded = false },
+            onNavigateToLyrics = {
+                playerExpanded = false
+                navController.navigate(Screen.Lyrics.route)
             }
-        ) {
-            PlayerScreen(
-                viewModel          = viewModel,
-                onNavigateBack     = { navController.popBackStack() },
-                onNavigateToLyrics = { navController.navigate(Screen.Lyrics.route) }
-            )
-        }
-
-        composable(
-            route = Screen.Lyrics.route,
-            enterTransition = {
-                slideInVertically(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness    = Spring.StiffnessMediumLow
-                    )
-                ) { it } + fadeIn(tween(0))
-            },
-            exitTransition     = { fadeOut(tween(120)) },
-            popEnterTransition = { fadeIn(tween(0)) },
-            popExitTransition  = {
-                slideOutVertically(
-                    animationSpec = tween(220, easing = FastOutLinearInEasing)
-                ) { it } + fadeOut(tween(160))
-            }
-        ) {
-            LyricsScreen(
-                viewModel      = viewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(
-            route     = Screen.PlaylistDetail.route,
-            arguments = listOf(
-                navArgument(Screen.PlaylistDetail.ARG) { type = NavType.LongType }
-            ),
-            enterTransition = {
-                slideInHorizontally(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                        stiffness    = Spring.StiffnessMediumLow
-                    )
-                ) { it } + fadeIn(tween(0))
-            },
-            exitTransition     = { fadeOut(tween(120)) },
-            popEnterTransition = { fadeIn(tween(200)) },
-            popExitTransition  = {
-                slideOutHorizontally(
-                    animationSpec = tween(220, easing = FastOutLinearInEasing)
-                ) { it } + fadeOut(tween(160))
-            }
-        ) { back ->
-            val playlistId = back.arguments?.getLong(Screen.PlaylistDetail.ARG)
-                ?: return@composable
-            PlaylistDetailScreen(
-                playlistId         = playlistId,
-                viewModel          = viewModel,
-                onBack             = { navController.popBackStack() },
-                onNavigateToPlayer = { navController.navigate(Screen.Player.route) }
-            )
-        }
+        )
     }
 }

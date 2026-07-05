@@ -40,10 +40,14 @@ import com.Music.data.remote.LyricsState
 
 @OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(
+fun PlayerContent(
     viewModel: MainViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToLyrics: () -> Unit
+    onNavigateToLyrics: () -> Unit,
+    showBackChevron: Boolean = true,
+    onDragDown: ((Float) -> Unit)? = null,
+    onDragEnd: (() -> Unit)? = null,
+    onDragCancel: (() -> Unit)? = null
 ) {
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying   by viewModel.isPlaying.collectAsState()
@@ -183,14 +187,28 @@ fun PlayerScreen(
                     Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // ── Top bar ──────────────────────────────────────────────
+                    // ── Top bar (also the drag-to-collapse handle) ─────────────
+                    val touchSlop = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
+                    val topBarModifier = if (onDragDown != null && onDragEnd != null && onDragCancel != null) {
+                        Modifier.verticalDrag(touchSlop, onDragDown, onDragEnd, onDragCancel)
+                    } else Modifier
                     Row(
-                        Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .then(topBarModifier)
+                            .padding(top = 8.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment     = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = onNavigateBack) {
-                            Icon(Icons.Default.KeyboardArrowDown, "Back", Modifier.size(32.dp))
+                        // Reserve the same 48dp width whether or not the chevron is
+                        // visible so the "Now Playing" label stays centered during
+                        // the drag-to-collapse gesture.
+                        Box(Modifier.size(48.dp), contentAlignment = Alignment.CenterStart) {
+                            if (showBackChevron) {
+                                IconButton(onClick = onNavigateBack) {
+                                    Icon(Icons.Default.KeyboardArrowDown, "Back", Modifier.size(32.dp))
+                                }
+                            }
                         }
                         Text("Now Playing", style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)

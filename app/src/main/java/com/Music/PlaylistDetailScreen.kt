@@ -72,30 +72,17 @@ fun PlaylistDetailScreen(
                     IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
                 }
             )
-        },
-        bottomBar = {
-            AnimatedVisibility(
-                visible = currentSong != null,
-                enter   = slideInVertically { it } + fadeIn(),
-                exit    = slideOutVertically { it } + fadeOut()
-            ) {
-                currentSong?.let { song ->
-                    Column(Modifier.navigationBarsPadding()) {
-                        MiniPlayer(
-                            song       = song,
-                            isPlaying  = isPlaying,
-                            onToggle   = { viewModel.togglePlayback() },
-                            onPrevious = { viewModel.playPrevious() },
-                            onNext     = { viewModel.playNext() },
-                            onTap      = onNavigateToPlayer
-                        )
-                    }
-                }
-            }
         }
     ) { padding ->
+        // The morphing player overlay renders the mini bar at the bottom of
+        // the screen; reserve space so list content isn't hidden behind it.
+        val bottomInset = if (currentSong != null) 84.dp else 0.dp
+        val contentPadding = PaddingValues(
+            top    = padding.calculateTopPadding(),
+            bottom = padding.calculateBottomPadding() + bottomInset
+        )
         if (songs.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.MusicNote, null, Modifier.size(56.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
@@ -116,7 +103,7 @@ fun PlaylistDetailScreen(
 
             LazyColumn(
                 state = lazyListState,
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize().padding(contentPadding),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 item {
