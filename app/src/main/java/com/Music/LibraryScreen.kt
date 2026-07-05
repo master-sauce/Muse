@@ -364,8 +364,9 @@ fun LibraryScreen(
                     onCancelPlaylist     = { viewModel.cancelPlaylistDownload() },
                     onExportLibrary      = { viewModel.exportLibraryLinks() },
                     onImportLinksFile    = {
+                        // Keep the sheet open so the user can review the
+                        // imported list and press "Download All".
                         pickLinksFile.launch(arrayOf("text/plain", "text/*", "*/*"))
-                        showAdd = false
                     }
                 )
             }
