@@ -653,10 +653,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Import a links file picked by the user via a document-open intent.
-     * Reads the URLs, converts them to [PlaylistEntry]s (title left blank —
-     * it will be filled in by yt-dlp during download), and feeds them into
-     * the shared batch-download engine. Already-downloaded songs are skipped
-     * by the engine itself.
+     * Reads the URLs and publishes them to [_playlistFetch] as
+     * [PlaylistEntry]s so they appear in the Playlist tab's list — exactly
+     * like [fetchPlaylistLinks] does for a YouTube playlist. The user can
+     * then review the list and press "Download All" to start the batch
+     * download, with full cancel support, reusing the same UI and engine
+     * as the playlist flow.
      */
     fun importLinksFile(uri: Uri) {
         if (_batchDownload.value.isRunning) {
@@ -669,10 +671,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _errorEvents.emit("No links found in that file")
                 return@launch
             }
-            // Clear any stale playlist fetch so the UI shows the batch panel.
-            _playlistFetch.value = PlaylistFetchState()
-            val entries = urls.mapIndexed { i, u -> PlaylistEntry(url = u, title = u, index = i) }
-            startBatchDownload(entries)
+            val entries = urls.mapIndexed { i, u ->
+                PlaylistEntry(url = u, title = u, index = i + 1)
+            }
+            _playlistFetch.value = PlaylistFetchState(
+                isLoading = false,
+                playlistUrl = "",
+                entries = entries
+            )
         }
     }
 
