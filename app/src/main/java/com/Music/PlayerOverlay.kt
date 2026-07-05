@@ -95,11 +95,19 @@ fun PlayerOverlay(
             )
         }
 
-        // Combined progress 0..1 used to drive the morph.
+        // Raw progress (may overshoot 0..1 while dragging past the endpoints).
         // Dragging up (negative offset) increases progress (expands); dragging
         // down (positive offset) decreases progress (collapses).
-        val progress = (expansion.value - dragOffsetPx.value / dragRangePx)
-            .coerceIn(0f, 1f)
+        val rawProgress = expansion.value - dragOffsetPx.value / dragRangePx
+
+        // Rubber-band clamping: past the 0..1 range the motion is damped so the
+        // player keeps following the finger but with increasing resistance,
+        // exactly like YouTube Music's overscroll feel.
+        val progress = when {
+            rawProgress < 0f -> -rubberBand(-rawProgress)
+            rawProgress > 1f -> 1f + rubberBand(rawProgress - 1f)
+            else -> rawProgress
+        }
 
         // ── Full player ───────────────────────────────────────────────────────
         // Slides up from below the viewport as progress → 1.
@@ -129,6 +137,19 @@ fun PlayerOverlay(
                         }
                     },
                     onDragCancel = {
+                        scope.launch { dragOffsetPx.animateTo(0f) }
+                    },
+                    // Let the user drag down from the album art too (YT Music).
+                    onArtworkDragDown = { dy ->
+                        scope.launch { dragOffsetPx.snapTo(dragOffsetPx.value + dy) }
+                    },
+                    onArtworkDragEnd = {
+                        val total = expansion.value - dragOffsetPx.value / dragRangePx
+                        scope.launch {
+                            if (total < 0.5f) onCollapse() else dragOffsetPx.animateTo(0f)
+                        }
+                    },
+                    onArtworkDragCancel = {
                         scope.launch { dragOffsetPx.animateTo(0f) }
                     }
                 )
@@ -178,6 +199,13 @@ fun PlayerOverlay(
         }
     }
 }
+
+/**
+ * Rubber-band easing for overscroll: maps an overshoot amount [x] (in 0..1
+ * progress units) to a damped value that grows sub-linearly so the UI keeps
+ * following the finger but with increasing resistance past the endpoints.
+ */
+private fun rubberBand(x: Float): Float = (1f - 1f / (x * 3f + 1f))
 
 // ─── Gesture helpers ──────────────────────────────────────────────────────────
 

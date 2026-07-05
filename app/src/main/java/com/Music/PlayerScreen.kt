@@ -47,7 +47,10 @@ fun PlayerContent(
     showBackChevron: Boolean = true,
     onDragDown: ((Float) -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null,
-    onDragCancel: (() -> Unit)? = null
+    onDragCancel: (() -> Unit)? = null,
+    onArtworkDragDown: ((Float) -> Unit)? = null,
+    onArtworkDragEnd: (() -> Unit)? = null,
+    onArtworkDragCancel: (() -> Unit)? = null
 ) {
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying   by viewModel.isPlaying.collectAsState()
@@ -286,10 +289,18 @@ fun PlayerContent(
                                 }
                             }
                         } else {
+                            // Dragging the album art down collapses the player
+                            // (like YouTube Music). Uses the Initial pointer pass
+                            // so the art stays tappable/scrollable otherwise.
+                            val artworkDragModifier =
+                                if (onArtworkDragDown != null && onArtworkDragEnd != null && onArtworkDragCancel != null) {
+                                    Modifier.verticalDrag(touchSlop, onArtworkDragDown, onArtworkDragEnd, onArtworkDragCancel)
+                                } else Modifier
                             Box(
                                 Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(1f)
+                                    .then(artworkDragModifier)
                                     .scale(albumScale)
                                     .shadow(
                                         albumShadow, RoundedCornerShape(24.dp),
