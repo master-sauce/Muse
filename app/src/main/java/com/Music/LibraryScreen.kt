@@ -1362,7 +1362,7 @@ private fun PlaylistImportTab(
             value         = playlistUrlText,
             onValueChange = onPlaylistUrlChange,
             modifier      = Modifier.fillMaxWidth(),
-            placeholder   = { Text("Paste playlist URL") },
+            placeholder   = { Text("Paste YouTube playlist URL") },
             singleLine    = true,
             shape         = RoundedCornerShape(12.dp),
             leadingIcon   = { Icon(Icons.Default.PlaylistPlay, null) },
