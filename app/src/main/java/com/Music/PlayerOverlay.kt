@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -20,12 +22,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * A YouTube-Music / Samsung-Music style morphing player.
@@ -81,6 +89,16 @@ fun PlayerOverlay(
     // release.
     var isDragging by remember { mutableStateOf(false) }
 
+    // ── Hero artwork morph ─────────────────────────────────────────────────
+    // We measure the on-screen bounds of the mini player's thumbnail and the
+    // full player's album art, then render a single "hero" AsyncImage on top
+    // that interpolates its position/size/corner-radius between the two. The
+    // inner images inside MiniPlayer/PlayerContent are hidden while morphing
+    // so the hero is the only artwork visible — exactly like YouTube Music's
+    // continuous thumbnail→album-art grow animation.
+    var miniThumbRect by remember { mutableStateOf<IntRect?>(null) }
+    var bigArtRect    by remember { mutableStateOf<IntRect?>(null) }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxHeightPx = with(density) { maxHeight.toPx() }
 
@@ -116,6 +134,10 @@ fun PlayerOverlay(
         // progress (collapses).
         val progress = (expansion.value - dragOffsetPx.value / dragRangePx)
             .coerceIn(0f, 1f)
+
+        // Hide the inner images only while actively morphing (0 < progress < 1).
+        // At the endpoints the real image is shown so taps/gestures hit it.
+        val morphing = progress > 0.001f && progress < 0.999f
 
         // ── Full player ───────────────────────────────────────────────────────
         // Slides up from below the viewport as progress → 1. Kept composed
@@ -167,7 +189,12 @@ fun PlayerOverlay(
                     onArtworkDragCancel = {
                         isDragging = false
                         scope.launch { dragOffsetPx.animateTo(0f) }
-                    }
+                    },
+                    // Hero morph: report the album art's on-screen bounds and
+                    // hide the inner image while morphing so the hero draws on
+                    // top.
+                    onArtworkPositioned = { rect -> bigArtRect = rect },
+                    hideArtwork = morphing
                 )
             }
         }
@@ -213,7 +240,53 @@ fun PlayerOverlay(
                         onDragCancel = {
                             isDragging = false
                             scope.launch { dragOffsetPx.animateTo(0f) }
-                        }
+                        },
+                        // Hero morph: report the thumbnail's on-screen bounds
+                        // and hide the inner image while morphing.
+                        onThumbnailPositioned = { rect -> miniThumbRect = rect },
+                        hideThumbnail = morphing
+                    )
+                }
+            }
+        }
+
+        // ── Hero artwork ───────────────────────────────────────────────────────
+        // A single AsyncImage drawn on top of both layers that continuously
+        // grows from the mini thumbnail's bounds (progress = 0) to the big
+        // album art's bounds (progress = 1). This is the YouTube-Music-style
+        // "the picture expands" animation. Only drawn while we have both
+        // measured bounds and are actively morphing.
+        val mini = miniThumbRect
+        val big  = bigArtRect
+        if (morphing && mini != null && big != null && song.thumbnailUrl != null) {
+            val p = progress
+            // Interpolate left/top/width/height in pixels.
+            val left   = (mini.left   + (big.left   - mini.left)   * p).roundToInt()
+            val top    = (mini.top    + (big.top    - mini.top)    * p).roundToInt()
+            val width  = (mini.width  + (big.width  - mini.width)  * p).roundToInt()
+            val height = (mini.height + (big.height - mini.height) * p).roundToInt()
+            // Corner radius: 12dp (mini) → 24dp (big), in px.
+            val cornerPx = with(density) {
+                (12.dp.toPx() + (24.dp.toPx() - 12.dp.toPx()) * p)
+            }
+            Box(
+                Modifier
+                    .fillMaxSize()
+            ) {
+                Box(
+                    Modifier
+                        .offset { androidx.compose.ui.unit.IntOffset(left, top) }
+                        .size(
+                            with(density) { width.toDp() },
+                            with(density) { height.toDp() }
+                        )
+                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(cornerPx))
+                ) {
+                    AsyncImage(
+                        model              = song.thumbnailUrl,
+                        contentDescription = "Album art",
+                        modifier           = Modifier.fillMaxSize(),
+                        contentScale       = ContentScale.Crop
                     )
                 }
             }

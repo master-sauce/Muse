@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,7 +52,11 @@ fun PlayerContent(
     onDragCancel: (() -> Unit)? = null,
     onArtworkDragDown: ((Float) -> Unit)? = null,
     onArtworkDragEnd: (() -> Unit)? = null,
-    onArtworkDragCancel: (() -> Unit)? = null
+    onArtworkDragCancel: (() -> Unit)? = null,
+    // When non-null, the album art reports its on-screen bounds here and is
+    // hidden (the hero image in PlayerOverlay draws on top during the morph).
+    onArtworkPositioned: ((androidx.compose.ui.unit.IntRect) -> Unit)? = null,
+    hideArtwork: Boolean = false
 ) {
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying   by viewModel.isPlaying.collectAsState()
@@ -308,6 +314,22 @@ fun PlayerContent(
                                 Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(1f)
+                                    .then(
+                                        if (onArtworkPositioned != null) {
+                                            Modifier.onGloballyPositioned { coords ->
+                                                val pos = coords.positionInRoot()
+                                                val size = coords.size
+                                                onArtworkPositioned(
+                                                    androidx.compose.ui.unit.IntRect(
+                                                        left   = pos.x.toInt(),
+                                                        top    = pos.y.toInt(),
+                                                        right  = (pos.x + size.width).toInt(),
+                                                        bottom = (pos.y + size.height).toInt()
+                                                    )
+                                                )
+                                            }
+                                        } else Modifier
+                                    )
                                     .scale(albumScale)
                                     .shadow(
                                         albumShadow, RoundedCornerShape(24.dp),
@@ -318,16 +340,18 @@ fun PlayerContent(
                                     .background(MaterialTheme.colorScheme.surfaceVariant),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (currentSong?.thumbnailUrl != null) {
-                                    AsyncImage(
-                                        model              = currentSong!!.thumbnailUrl,
-                                        contentDescription = "Album art",
-                                        modifier           = Modifier.fillMaxSize(),
-                                        contentScale       = ContentScale.Crop
-                                    )
-                                } else {
-                                    Icon(Icons.Default.MusicNote, null, Modifier.size(96.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                if (!hideArtwork) {
+                                    if (currentSong?.thumbnailUrl != null) {
+                                        AsyncImage(
+                                            model              = currentSong!!.thumbnailUrl,
+                                            contentDescription = "Album art",
+                                            modifier           = Modifier.fillMaxSize(),
+                                            contentScale       = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.MusicNote, null, Modifier.size(96.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                    }
                                 }
                             }
                         }

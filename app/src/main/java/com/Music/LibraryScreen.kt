@@ -27,6 +27,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -966,7 +968,11 @@ fun MiniPlayer(
     onTap: () -> Unit,
     onDragUp: ((Float) -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null,
-    onDragCancel: (() -> Unit)? = null
+    onDragCancel: (() -> Unit)? = null,
+    // When non-null, the thumbnail reports its on-screen bounds here and is
+    // hidden (the hero image in PlayerOverlay draws on top during the morph).
+    onThumbnailPositioned: ((androidx.compose.ui.unit.IntRect) -> Unit)? = null,
+    hideThumbnail: Boolean = false
 ) {
     // Use a small custom touch slop so the drag engages quickly without the
     // user having to hold/move a lot before the player starts following.
@@ -1002,19 +1008,37 @@ fun MiniPlayer(
             Box(
                 Modifier
                     .size(48.dp)
+                    .then(
+                        if (onThumbnailPositioned != null) {
+                            Modifier.onGloballyPositioned { coords ->
+                                val pos = coords.positionInRoot()
+                                val size = coords.size
+                                onThumbnailPositioned(
+                                    androidx.compose.ui.unit.IntRect(
+                                        left   = pos.x.toInt(),
+                                        top    = pos.y.toInt(),
+                                        right  = (pos.x + size.width).toInt(),
+                                        bottom = (pos.y + size.height).toInt()
+                                    )
+                                )
+                            }
+                        } else Modifier
+                    )
                     .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surface),
                 contentAlignment = Alignment.Center
             ) {
-                if (song.thumbnailUrl != null) {
-                    AsyncImage(
-                        model              = song.thumbnailUrl,
-                        contentDescription = null,
-                        modifier           = Modifier.fillMaxSize(),
-                        contentScale       = ContentScale.Crop
-                    )
-                } else {
-                    Icon(Icons.Default.MusicNote, null)
+                if (!hideThumbnail) {
+                    if (song.thumbnailUrl != null) {
+                        AsyncImage(
+                            model              = song.thumbnailUrl,
+                            contentDescription = null,
+                            modifier           = Modifier.fillMaxSize(),
+                            contentScale       = ContentScale.Crop
+                        )
+                    } else {
+                        Icon(Icons.Default.MusicNote, null)
+                    }
                 }
             }
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
