@@ -109,19 +109,13 @@ fun PlayerOverlay(
             )
         }
 
-        // Raw progress (may overshoot 0..1 while dragging past the endpoints).
-        // Dragging up (negative offset) increases progress (expands); dragging
-        // down (positive offset) decreases progress (collapses).
-        val rawProgress = expansion.value - dragOffsetPx.value / dragRangePx
-
-        // Rubber-band clamping: past the 0..1 range the motion is damped so the
-        // player keeps following the finger but with increasing resistance,
-        // exactly like YouTube Music's overscroll feel.
-        val progress = when {
-            rawProgress < 0f -> -rubberBand(-rawProgress)
-            rawProgress > 1f -> 1f + rubberBand(rawProgress - 1f)
-            else -> rawProgress
-        }
+        // Progress is hard-clamped to 0..1 so the player cannot be dragged
+        // past its endpoints — it stops firmly at fully collapsed (0) or
+        // fully expanded (1). Dragging up (negative offset) increases
+        // progress (expands); dragging down (positive offset) decreases
+        // progress (collapses).
+        val progress = (expansion.value - dragOffsetPx.value / dragRangePx)
+            .coerceIn(0f, 1f)
 
         // ── Full player ───────────────────────────────────────────────────────
         // Slides up from below the viewport as progress → 1. Kept composed
@@ -225,13 +219,6 @@ fun PlayerOverlay(
         }
     }
 }
-
-/**
- * Rubber-band easing for overscroll: maps an overshoot amount [x] (in 0..1
- * progress units) to a damped value that grows sub-linearly so the UI keeps
- * following the finger but with increasing resistance past the endpoints.
- */
-private fun rubberBand(x: Float): Float = (1f - 1f / (x * 3f + 1f))
 
 // ─── Gesture helpers ──────────────────────────────────────────────────────────
 
