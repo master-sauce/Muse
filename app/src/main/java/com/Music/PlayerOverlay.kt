@@ -206,7 +206,8 @@ fun PlayerOverlay(
                             val total = expansion.value - dragOffsetPx.value / dragRangePx
                             isDragging = false
                             scope.launch {
-                                if (total > 0.35f) onExpand() else dragOffsetPx.animateTo(0f)
+                                // Past the halfway point → expand; otherwise snap back.
+                                if (total > 0.5f) onExpand() else dragOffsetPx.animateTo(0f)
                             }
                         },
                         onDragCancel = {
