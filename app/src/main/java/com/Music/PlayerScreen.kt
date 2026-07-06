@@ -105,11 +105,10 @@ fun PlayerContent(
         }
     }
 
-    val albumScale by animateFloatAsState(
-        targetValue   = if (isPlaying) 1f else 0.82f,
-        animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow),
-        label         = "albumScale"
-    )
+    // The album art used to scale down to 0.82 when paused. That conflicted
+    // with the hero morph (the hero is always at scale 1f, so handing off to
+    // a 0.82-scaled image caused a visible "shrink" pop). Keep it at 1f.
+    val albumScale = 1f
     val albumShadow by animateDpAsState(
         targetValue   = if (isPlaying) 32.dp else 6.dp,
         animationSpec = tween(500),
