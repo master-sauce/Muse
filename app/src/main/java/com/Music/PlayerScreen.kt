@@ -177,28 +177,40 @@ fun PlayerContent(
             modifier = Modifier.fillMaxSize(),
             color    = MaterialTheme.colorScheme.background
         ) {
+            // A single vertical-drag handle on the root Box lets the user
+            // drag down from anywhere in the player to collapse it (like
+            // YouTube Music). It uses the Initial pointer pass and only
+            // consumes events once a *vertical* drag past touch slop is
+            // detected, so:
+            //  - Taps on buttons/lyrics still work (no movement → no consume).
+            //  - The seek Slider still works: it consumes the pointer on its
+            //    own Main pass for horizontal movement, so our Initial-pass
+            //    vertical detector never reaches the slop threshold there.
+            val touchSlop = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
+            val rootDragModifier =
+                if (onDragDown != null && onDragEnd != null && onDragCancel != null) {
+                    Modifier.verticalDrag(touchSlop, onDragDown, onDragEnd, onDragCancel)
+                } else Modifier
             Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
-                        MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.background
-                    ))
-                )
+                Modifier
+                    .fillMaxSize()
+                    .then(rootDragModifier)
+                    .background(
+                        Brush.verticalGradient(listOf(
+                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                            MaterialTheme.colorScheme.background,
+                            MaterialTheme.colorScheme.background
+                        ))
+                    )
             ) {
                 Column(
                     Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // ── Top bar (also the drag-to-collapse handle) ─────────────
-                    val touchSlop = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
-                    val topBarModifier = if (onDragDown != null && onDragEnd != null && onDragCancel != null) {
-                        Modifier.verticalDrag(touchSlop, onDragDown, onDragEnd, onDragCancel)
-                    } else Modifier
+                    // ── Top bar ────────────────────────────────────────────────
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .then(topBarModifier)
                             .padding(top = 8.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment     = Alignment.CenterVertically
@@ -289,18 +301,13 @@ fun PlayerContent(
                                 }
                             }
                         } else {
-                            // Dragging the album art down collapses the player
-                            // (like YouTube Music). Uses the Initial pointer pass
-                            // so the art stays tappable/scrollable otherwise.
-                            val artworkDragModifier =
-                                if (onArtworkDragDown != null && onArtworkDragEnd != null && onArtworkDragCancel != null) {
-                                    Modifier.verticalDrag(touchSlop, onArtworkDragDown, onArtworkDragEnd, onArtworkDragCancel)
-                                } else Modifier
+                            // The root Box already provides a drag-to-collapse
+                            // handle for the whole player (including the art),
+                            // so no separate gesture is needed here.
                             Box(
                                 Modifier
                                     .fillMaxWidth()
                                     .aspectRatio(1f)
-                                    .then(artworkDragModifier)
                                     .scale(albumScale)
                                     .shadow(
                                         albumShadow, RoundedCornerShape(24.dp),

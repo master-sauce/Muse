@@ -84,9 +84,9 @@ fun PlayerOverlay(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxHeightPx = with(density) { maxHeight.toPx() }
 
-        // Sensitivity: a drag of `dragRangePx` covers the full 0→1 morph, so a
-        // short flick is enough to open/close the player (like YT Music).
-        val dragRangePx = maxHeightPx * 0.18f
+        // Sensitivity: a drag of `dragRangePx` covers the full 0→1 morph.
+        // 0.35 = a natural, full-length swipe; not too twitchy, not too far.
+        val dragRangePx = maxHeightPx * 0.35f
 
         // Animate toward the target state whenever [expanded] flips. We start
         // from the *current* visual progress (including any live drag) so there
@@ -245,6 +245,12 @@ private fun rubberBand(x: Float): Float = (1f - 1f / (x * 3f + 1f))
  * `combinedClickable`). Only once the pointer moves past [touchSlop] do we
  * start consuming events and reporting drags. This is what lets the mini bar
  * be both draggable (to expand) and have working buttons.
+ *
+ * To avoid stealing gestures that are really horizontal (e.g. the seek
+ * [Slider]), the drag only engages when the accumulated movement is
+ * predominantly vertical (|dy| > |dx|). A horizontal swipe therefore stays
+ * with the child, while a vertical swipe anywhere collapses/expands the
+ * player — exactly like YouTube Music.
  */
 fun Modifier.verticalDrag(
     touchSlop: Float,
@@ -255,24 +261,35 @@ fun Modifier.verticalDrag(
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
         var totalDragY = 0f
+        var totalDragX = 0f
         var isDragging = false
+        // Once we decide this gesture is horizontal, stop competing for it so
+        // the child (Slider) gets a clean stream of events.
+        var yieldedToChild = false
 
         do {
             // Observe in the Initial pass so we see the event before children.
             val event = awaitPointerEvent(PointerEventPass.Initial)
             val change = event.changes.first()
             val dy = change.position.y - change.previousPosition.y
+            val dx = change.position.x - change.previousPosition.x
 
             if (isDragging) {
                 change.consume()
                 onDrag(dy)
+            } else if (yieldedToChild) {
+                // Do nothing — let the child handle the rest of the gesture.
             } else {
                 totalDragY += dy
-                if (abs(totalDragY) > touchSlop) {
+                totalDragX += dx
+                if (abs(totalDragY) > touchSlop && abs(totalDragY) > abs(totalDragX)) {
                     isDragging = true
                     // Consume the historical movement too so children don't
                     // suddenly jump when we take over.
                     change.consume()
+                } else if (abs(totalDragX) > touchSlop && abs(totalDragX) >= abs(totalDragY)) {
+                    // Predominantly horizontal — hand the gesture to the child.
+                    yieldedToChild = true
                 }
             }
         } while (change.pressed)
