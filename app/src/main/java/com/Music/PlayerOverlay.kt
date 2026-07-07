@@ -120,9 +120,11 @@ fun PlayerOverlay(
             expansion.snapTo(currentProgress)
             expansion.animateTo(
                 targetValue   = if (expanded) 1f else 0f,
+                // Snappier than StiffnessMedium (400f) but smoother than
+                // StiffnessHigh (10000f) — a quick, responsive morph.
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness    = Spring.StiffnessMedium
+                    stiffness    = 1500f
                 )
             )
         }
