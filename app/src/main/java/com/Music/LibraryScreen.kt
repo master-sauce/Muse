@@ -56,7 +56,10 @@ import java.io.File
 fun LibraryScreen(
     viewModel: MainViewModel,
     onNavigateToPlayer: () -> Unit,
-    onNavigateToPlaylist: (Long) -> Unit
+    onNavigateToPlaylist: (Long) -> Unit,
+    // Called when a song is tapped from the list. Opens the big player
+    // directly, skipping the mini player so the image only loads once.
+    onPlayFromList: () -> Unit = { onNavigateToPlayer() }
 ) {
     val songs           by viewModel.songs.collectAsState()
     val currentSong     by viewModel.currentSong.collectAsState()
@@ -295,7 +298,9 @@ fun LibraryScreen(
                             if (song.id != currentSong?.id) {
                                 viewModel.playSong(song)
                             }
-                            onNavigateToPlayer()
+                            // Open the big player directly (skip mini player)
+                            // so the album art only loads in the big player.
+                            onPlayFromList()
                         },
                         onPlayNext      = { song -> viewModel.playNext(song) },
                         onAddToQueue    = { song -> viewModel.addToQueue(song) },

@@ -61,7 +61,14 @@ fun PlayerOverlay(
     expanded: Boolean,
     onExpand: () -> Unit,
     onCollapse: () -> Unit,
-    onNavigateToLyrics: () -> Unit
+    onNavigateToLyrics: () -> Unit,
+    // When true, the overlay skips the mini-player phase on the initial
+    // expand: the big player slides up directly (its image loads only once,
+    // in the big player) instead of first showing the mini player's
+    // thumbnail and then morphing. Used when a song is tapped from the list.
+    // Reset to false by the caller once the expand animation finishes.
+    openExpanded: Boolean = false,
+    onOpenExpandedDone: () -> Unit = {}
 ) {
     val currentSong by viewModel.currentSong.collectAsState()
     val isPlaying   by viewModel.isPlaying.collectAsState()
@@ -127,6 +134,9 @@ fun PlayerOverlay(
                     stiffness    = 1500f
                 )
             )
+            // Once the expand animation finishes, clear the openExpanded flag
+            // so the mini player is available again for subsequent collapses.
+            if (expanded && openExpanded) onOpenExpandedDone()
         }
 
         // Progress is hard-clamped to 0..1 so the player cannot be dragged
@@ -145,7 +155,10 @@ fun PlayerOverlay(
         // Slides up from below the viewport as progress → 1. Kept composed
         // while a drag is in progress so the gesture target is never disposed
         // mid-drag (which would cancel the drag and snap the player back).
-        if (progress > 0.001f || isDragging) {
+        // Also render the full player from progress 0 when opening expanded
+        // directly (the mini player is skipped in that mode, so the big player
+        // must be visible immediately and slide up on its own).
+        if (progress > 0.001f || isDragging || openExpanded) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -208,7 +221,9 @@ fun PlayerOverlay(
         // ── Mini player ───────────────────────────────────────────────────────
         // Slides up following the finger and fades out as progress → 1. Kept
         // composed while a drag is in progress for the same reason as above.
-        if (progress < 0.999f || isDragging) {
+        // Skipped entirely while [openExpanded] is active so the mini player's
+        // thumbnail never loads first — the big player opens directly.
+        if ((progress < 0.999f || isDragging) && !openExpanded) {
             Box(
                 Modifier
                     .fillMaxSize()
