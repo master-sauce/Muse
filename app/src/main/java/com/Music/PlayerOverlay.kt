@@ -332,6 +332,12 @@ fun Modifier.verticalDrag(
         // the child (Slider) gets a clean stream of events.
         var yieldedToChild = false
 
+        // A gesture is handed to the child (Slider) only when the horizontal
+        // component is at least this many times the vertical one. 1.5f lets
+        // comfortable diagonal drags (up to ~56° from vertical) still engage
+        // the morph, while clearly horizontal swipes stay with the Slider.
+        val horizontalRatio = 1.5f
+
         do {
             // Observe in the Initial pass so we see the event before children.
             val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -347,12 +353,19 @@ fun Modifier.verticalDrag(
             } else {
                 totalDragY += dy
                 totalDragX += dx
-                if (abs(totalDragY) > touchSlop && abs(totalDragY) > abs(totalDragX)) {
+                val absY = abs(totalDragY)
+                val absX = abs(totalDragX)
+                // Engage the vertical morph as soon as there is meaningful
+                // vertical movement AND the gesture isn't strongly horizontal.
+                // This relaxes the old strict |dy| > |dx| rule so diagonal
+                // drags expand/collapse the player instead of being ignored,
+                // while horizontal drift during an engaged drag never breaks it.
+                if (absY > touchSlop && absX <= absY * horizontalRatio) {
                     isDragging = true
                     // Consume the historical movement too so children don't
                     // suddenly jump when we take over.
                     change.consume()
-                } else if (abs(totalDragX) > touchSlop && abs(totalDragX) >= abs(totalDragY)) {
+                } else if (absX > touchSlop && absX > absY * horizontalRatio) {
                     // Predominantly horizontal — hand the gesture to the child.
                     yieldedToChild = true
                 }
