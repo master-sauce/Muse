@@ -167,7 +167,9 @@ fun PlayerOverlay(
                         val total = expansion.value - dragOffsetPx.value / dragRangePx
                         isDragging = false
                         scope.launch {
-                            if (total < 0.5f) onCollapse() else dragOffsetPx.animateTo(0f)
+                            // Collapse once the player has been dragged down past
+                            // the 70% mark (i.e. only 30% of the morph remains).
+                            if (total < 0.7f) onCollapse() else dragOffsetPx.animateTo(0f)
                         }
                     },
                     onDragCancel = {
@@ -183,7 +185,9 @@ fun PlayerOverlay(
                         val total = expansion.value - dragOffsetPx.value / dragRangePx
                         isDragging = false
                         scope.launch {
-                            if (total < 0.5f) onCollapse() else dragOffsetPx.animateTo(0f)
+                            // Collapse once the player has been dragged down past
+                            // the 70% mark (i.e. only 30% of the morph remains).
+                            if (total < 0.7f) onCollapse() else dragOffsetPx.animateTo(0f)
                         }
                     },
                     onArtworkDragCancel = {
@@ -233,8 +237,8 @@ fun PlayerOverlay(
                             val total = expansion.value - dragOffsetPx.value / dragRangePx
                             isDragging = false
                             scope.launch {
-                                // Past the halfway point → expand; otherwise snap back.
-                                if (total > 0.5f) onExpand() else dragOffsetPx.animateTo(0f)
+                                // Past the 30% mark → expand; otherwise snap back.
+                                if (total > 0.3f) onExpand() else dragOffsetPx.animateTo(0f)
                             }
                         },
                         onDragCancel = {
