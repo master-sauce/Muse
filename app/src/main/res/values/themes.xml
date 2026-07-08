@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Muse" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Muse" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Match the Compose dark background so transitions (scale/fade) never
+             flash the default white window background. -->
+        <item name="android:windowBackground">@color/muse_background</item>
+        <item name="android:colorBackground">@color/muse_background</item>
+    </style>
 </resources>

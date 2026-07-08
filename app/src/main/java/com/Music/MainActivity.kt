@@ -128,19 +128,18 @@ fun MusicApp() {
                     navArgument(Screen.PlaylistDetail.ARG) { type = NavType.LongType }
                 ),
                 enterTransition = {
-                    slideInHorizontally(
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness    = Spring.StiffnessMediumLow
-                        )
-                    ) { it } + fadeIn(tween(0))
+                    scaleIn(
+                        initialScale = 0.85f,
+                        animationSpec = tween(240, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(240))
                 },
                 exitTransition     = { fadeOut(tween(120)) },
                 popEnterTransition = { fadeIn(tween(200)) },
                 popExitTransition  = {
-                    slideOutHorizontally(
+                    scaleOut(
+                        targetScale = 0.85f,
                         animationSpec = tween(220, easing = FastOutLinearInEasing)
-                    ) { it } + fadeOut(tween(160))
+                    ) + fadeOut(tween(220))
                 }
             ) { back ->
                 val playlistId = back.arguments?.getLong(Screen.PlaylistDetail.ARG)
