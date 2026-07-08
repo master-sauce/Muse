@@ -159,7 +159,8 @@ fun PlaylistDetailScreen(
             // enters it — so dragging back over a marked song deselects it.
             // When the finger lingers near the top or bottom edge the list
             // auto-scrolls so the user can keep marking songs beyond the
-            // visible viewport.
+            // visible viewport; songs scrolling under a stationary finger are
+            // toggled too, so none are missed.
             val currentSongs     by rememberUpdatedState(songs)
             val toggleSelectCb   by rememberUpdatedState { id: String -> viewModel.togglePlaylistSelect(id) }
             var dragSelectActive by remember { mutableStateOf(false) }
@@ -172,8 +173,23 @@ fun PlaylistDetailScreen(
                     y >= info.offset && y < info.offset + info.size
                 }
 
+            // Toggle the song currently under the finger (if it's a new one).
+            // Shared by the drag handler and the auto-scroll loop so scrolling
+            // never skips songs. The first list item is the Play All / Shuffle
+            // header, so song rows start at index 1.
+            fun toggleItemAt(y: Float) {
+                val info = itemInfoAt(y) ?: return
+                val songIndex = info.index - 1
+                if (songIndex < 0) return
+                if (songIndex == lastDragIndex) return
+                val id = currentSongs.getOrNull(songIndex)?.id ?: return
+                toggleSelectCb(id)
+                lastDragIndex = songIndex
+            }
+
             // Auto-scroll loop: while a drag is active, scroll up/down when the
-            // finger is within the edge zone.
+            // finger is within the edge zone, and toggle whatever song ends up
+            // under the finger after each scroll step.
             val density = androidx.compose.ui.platform.LocalDensity.current
             val edgeZonePx = with(density) { 64.dp.toPx() }
             val scrollSpeedPx = with(density) { 12.dp.toPx() } // px per tick
@@ -185,8 +201,10 @@ fun PlaylistDetailScreen(
                         val viewport = lazyListState.layoutInfo.viewportSize.height
                         if (y < edgeZonePx) {
                             lazyListState.scrollBy(-scrollSpeedPx)
+                            toggleItemAt(y)
                         } else if (y > viewport - edgeZonePx) {
                             lazyListState.scrollBy(scrollSpeedPx)
+                            toggleItemAt(y)
                         }
                     }
                     kotlinx.coroutines.delay(16)
@@ -215,14 +233,7 @@ fun PlaylistDetailScreen(
                             onDrag = { change, _ ->
                                 if (!dragSelectActive) return@detectDragGesturesAfterLongPress
                                 dragY = change.position.y
-                                val info = itemInfoAt(change.position.y) ?: return@detectDragGesturesAfterLongPress
-                                val songIndex = info.index - 1
-                                if (songIndex < 0) return@detectDragGesturesAfterLongPress
-                                if (songIndex != lastDragIndex) {
-                                    val id = currentSongs.getOrNull(songIndex)?.id
-                                    if (id != null) toggleSelectCb(id)
-                                    lastDragIndex = songIndex
-                                }
+                                toggleItemAt(change.position.y)
                                 change.consume()
                             },
                             onDragEnd    = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f },
