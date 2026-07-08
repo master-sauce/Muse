@@ -253,12 +253,17 @@ fun PlaylistDetailScreen(
                             enableDismissFromStartToEnd = !inSelection,
                             enableDismissFromEndToStart = false,
                             backgroundContent = {
-                                val color = when (dismissState.dismissDirection) {
-                                    SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
-                                    else -> Color.Transparent
-                                }
-                                Box(Modifier.fillMaxSize().background(color).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterStart) {
-                                    Icon(Icons.Default.Queue, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                val direction = dismissState.dismissDirection
+                                if (direction == SwipeToDismissBoxValue.StartToEnd && !inSelection) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.primaryContainer)
+                                            .padding(horizontal = 20.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        Icon(Icons.Default.Queue, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                    }
                                 }
                             }
                         ) {
