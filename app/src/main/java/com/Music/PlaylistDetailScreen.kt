@@ -42,7 +42,10 @@ fun PlaylistDetailScreen(
     playlistId: Long,
     viewModel: MainViewModel,
     onBack: () -> Unit,
-    onNavigateToPlayer: () -> Unit
+    onNavigateToPlayer: () -> Unit,
+    // Called when a song is tapped from the playlist. Opens the big player
+    // directly, skipping the mini player so the image only loads once.
+    onPlayFromList: () -> Unit = { onNavigateToPlayer() }
 ) {
     val songs        by viewModel.playlistSongs.collectAsState()
     val playlists    by viewModel.playlists.collectAsState()
@@ -180,7 +183,10 @@ fun PlaylistDetailScreen(
                                     if (song.id != currentSong?.id) {
                                         viewModel.playSongList(songs, index)
                                     }
-                                    onNavigateToPlayer()
+                                    // Open the big player directly (skip mini
+                                    // player) so the album art only loads in
+                                    // the big player.
+                                    onPlayFromList()
                                 },
                                 onPlayNext = { viewModel.playNext(song) },
                                 onAddToQueue = { viewModel.addToQueue(song) },

@@ -149,7 +149,14 @@ fun MusicApp() {
                     playlistId         = playlistId,
                     viewModel          = viewModel,
                     onBack             = { navController.popBackStack() },
-                    onNavigateToPlayer = { playerExpanded = true }
+                    onNavigateToPlayer = { playerExpanded = true },
+                    // Tapping a song from the playlist opens the big player
+                    // directly, skipping the mini player so the image only
+                    // loads once (in the big player).
+                    onPlayFromList     = {
+                        openExpanded = true
+                        playerExpanded = true
+                    }
                 )
             }
         }
