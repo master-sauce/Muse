@@ -629,7 +629,12 @@ fun SongListItem(
     var showMenu          by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
 
-    val bgAlpha   by animateFloatAsState(if (isCurrent) 0.18f else 0f, label = "songBg")
+    // In selection mode the blue highlight follows the selection (not the
+    // currently-playing song); outside selection it marks the current song.
+    val bgAlpha   by animateFloatAsState(
+        if (inSelection) { if (isSelected) 0.18f else 0f } else { if (isCurrent) 0.18f else 0f },
+        label = "songBg"
+    )
     val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "dragElev")
 
     ListItem(
@@ -648,8 +653,8 @@ fun SongListItem(
                     song.title,
                     maxLines   = 1,
                     overflow   = TextOverflow.Ellipsis,
-                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color      = if (isCurrent) MaterialTheme.colorScheme.primary
+                    fontWeight = if (!inSelection && isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color      = if (!inSelection && isCurrent) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f, fill = false)
                 )

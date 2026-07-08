@@ -158,6 +158,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
     val inSelectionMode get() = _selectedIds.value.isNotEmpty()
 
+    // ── Playlist-detail selection ──────────────────────────────────────────
+    // Separate selection set for the PlaylistDetailScreen so it doesn't clash
+    // with the library's selection. Backed by the same batch helpers below.
+    private val _playlistSelectedIds = MutableStateFlow<Set<String>>(emptySet())
+    val playlistSelectedIds: StateFlow<Set<String>> = _playlistSelectedIds.asStateFlow()
+    val inPlaylistSelectionMode get() = _playlistSelectedIds.value.isNotEmpty()
+
     /** True while the selected songs are being zipped for sharing. */
     private val _isZipping = MutableStateFlow(false)
     val isZipping: StateFlow<Boolean> = _isZipping.asStateFlow()
@@ -988,6 +995,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectAll()      { _selectedIds.value = _songs.value.map { it.id }.toSet() }
     fun clearSelection() { _selectedIds.value = emptySet() }
+
+    // ── Playlist-detail selection helpers ──────────────────────────────────
+    fun togglePlaylistSelect(id: String) {
+        _playlistSelectedIds.value = _playlistSelectedIds.value.toMutableSet().also { if (!it.add(id)) it.remove(id) }
+    }
+    fun selectPlaylistIds(ids: Collection<String>) {
+        if (ids.isNotEmpty()) _playlistSelectedIds.value = _playlistSelectedIds.value + ids
+    }
+    fun deselectPlaylistIds(ids: Collection<String>) {
+        if (ids.isNotEmpty()) _playlistSelectedIds.value = _playlistSelectedIds.value - ids
+    }
+    fun selectAllPlaylist() { _playlistSelectedIds.value = _playlistSongs.value.map { it.id }.toSet() }
+    fun clearPlaylistSelection() { _playlistSelectedIds.value = emptySet() }
+
+    /** Remove every selected song from the given playlist, then clear the selection. */
+    fun removeSelectedFromPlaylist(playlistId: Long) {
+        val ids = _playlistSelectedIds.value
+        if (ids.isEmpty()) return
+        clearPlaylistSelection()
+        viewModelScope.launch {
+            ids.forEach { repository.removeSongFromPlaylist(playlistId, it) }
+        }
+    }
+
+    /** Add every selected song to the given playlist, keeping the selection active. */
+    fun addPlaylistSelectedToPlaylist(targetPlaylistId: Long) {
+        val ids = _playlistSelectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            ids.forEach { repository.addSongToPlaylist(targetPlaylistId, it) }
+        }
+    }
 
     fun deleteSelected() {
         val ids = _selectedIds.value
