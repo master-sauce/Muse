@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -156,15 +157,41 @@ fun PlaylistDetailScreen(
             // Same gesture as the library: long press toggles the anchor song,
             // then dragging across other songs toggles each one as the finger
             // enters it — so dragging back over a marked song deselects it.
+            // When the finger lingers near the top or bottom edge the list
+            // auto-scrolls so the user can keep marking songs beyond the
+            // visible viewport.
             val currentSongs     by rememberUpdatedState(songs)
             val toggleSelectCb   by rememberUpdatedState { id: String -> viewModel.togglePlaylistSelect(id) }
             var dragSelectActive by remember { mutableStateOf(false) }
             var lastDragIndex    by remember { mutableStateOf(-1) }
+            // Latest finger Y (in list-local px) while dragging; -1 when idle.
+            var dragY by remember { mutableFloatStateOf(-1f) }
 
             fun itemInfoAt(y: Float) =
                 lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
                     y >= info.offset && y < info.offset + info.size
                 }
+
+            // Auto-scroll loop: while a drag is active, scroll up/down when the
+            // finger is within the edge zone.
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            val edgeZonePx = with(density) { 64.dp.toPx() }
+            val scrollSpeedPx = with(density) { 12.dp.toPx() } // px per tick
+            LaunchedEffect(dragSelectActive) {
+                if (!dragSelectActive) return@LaunchedEffect
+                while (dragSelectActive) {
+                    val y = dragY
+                    if (y >= 0f) {
+                        val viewport = lazyListState.layoutInfo.viewportSize.height
+                        if (y < edgeZonePx) {
+                            lazyListState.scrollBy(-scrollSpeedPx)
+                        } else if (y > viewport - edgeZonePx) {
+                            lazyListState.scrollBy(scrollSpeedPx)
+                        }
+                    }
+                    kotlinx.coroutines.delay(16)
+                }
+            }
 
             LazyColumn(
                 state = lazyListState,
@@ -181,11 +208,13 @@ fun PlaylistDetailScreen(
                                 val id = currentSongs.getOrNull(songIndex)?.id ?: return@detectDragGesturesAfterLongPress
                                 dragSelectActive = true
                                 lastDragIndex    = songIndex
+                                dragY            = offset.y
                                 toggleSelectCb(id)
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
                             onDrag = { change, _ ->
                                 if (!dragSelectActive) return@detectDragGesturesAfterLongPress
+                                dragY = change.position.y
                                 val info = itemInfoAt(change.position.y) ?: return@detectDragGesturesAfterLongPress
                                 val songIndex = info.index - 1
                                 if (songIndex < 0) return@detectDragGesturesAfterLongPress
@@ -196,8 +225,8 @@ fun PlaylistDetailScreen(
                                 }
                                 change.consume()
                             },
-                            onDragEnd    = { dragSelectActive = false; lastDragIndex = -1 },
-                            onDragCancel = { dragSelectActive = false; lastDragIndex = -1 }
+                            onDragEnd    = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f },
+                            onDragCancel = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f }
                         )
                     },
                 contentPadding = PaddingValues(bottom = 16.dp)
