@@ -87,6 +87,7 @@ fun LibraryScreen(
     var showAdd              by remember { mutableStateOf(false) }
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
+    var showConfirmDeleteSelected by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var searchQuery by remember { mutableStateOf("") }
@@ -101,6 +102,7 @@ fun LibraryScreen(
     BackHandler(enabled = showAdd) { showAdd = false }
     BackHandler(enabled = showNewPlaylistDialog) { showNewPlaylistDialog = false }
     BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
+    BackHandler(enabled = showConfirmDeleteSelected) { showConfirmDeleteSelected = false }
     BackHandler(enabled = inSelection) { viewModel.clearSelection() }
     BackHandler(enabled = isSearching && selectedTab == 0) {
         isSearching = false
@@ -184,7 +186,7 @@ fun LibraryScreen(
                         IconButton(onClick = { viewModel.selectAll() }) {
                             Icon(Icons.Default.SelectAll, "Select all")
                         }
-                        IconButton(onClick = { viewModel.deleteSelected() }) {
+                        IconButton(onClick = { showConfirmDeleteSelected = true }) {
                             Icon(
                                 Icons.Default.DeleteSweep, "Delete selected",
                                 tint = MaterialTheme.colorScheme.error
@@ -433,6 +435,30 @@ fun LibraryScreen(
                 onDismiss = { showAddSelectedToPlaylist = false }
             )
         }
+
+        if (showConfirmDeleteSelected) {
+            AlertDialog(
+                onDismissRequest = { showConfirmDeleteSelected = false },
+                title   = { Text("Delete selected songs?") },
+                text    = {
+                    Text(
+                        "${selectedIds.size} song${if (selectedIds.size == 1) "" else "s"} will be " +
+                        "permanently removed from your library and their files deleted."
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.deleteSelected()
+                        showConfirmDeleteSelected = false
+                    }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showConfirmDeleteSelected = false }) { Text("Cancel") }
+                }
+            )
+        }
     }
 }
 
@@ -673,6 +699,7 @@ fun SongListItem(
 ) {
     var showMenu          by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
+    var showConfirmDelete by remember { mutableStateOf(false) }
 
     // In selection mode the blue highlight follows the selection (not the
     // currently-playing song); outside selection it marks the current song.
@@ -817,7 +844,7 @@ fun SongListItem(
                                     Icon(Icons.Default.Delete, null,
                                         tint = MaterialTheme.colorScheme.error)
                                 },
-                                onClick = { showMenu = false; onDelete() }
+                                onClick = { showMenu = false; showConfirmDelete = true }
                             )
                         }
                     }
@@ -843,6 +870,24 @@ fun SongListItem(
             playlists = playlists,
             onSelect  = { plId -> onAddToPlaylist(plId); showAddToPlaylist = false },
             onDismiss = { showAddToPlaylist = false }
+        )
+    }
+
+    if (showConfirmDelete) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDelete = false },
+            title   = { Text("Delete song?") },
+            text    = {
+                Text("\"${song.title}\" will be permanently removed from your library and its file deleted.")
+            },
+            confirmButton = {
+                TextButton(onClick = { onDelete(); showConfirmDelete = false }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDelete = false }) { Text("Cancel") }
+            }
         )
     }
 }
