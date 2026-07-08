@@ -158,6 +158,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val selectedIds: StateFlow<Set<String>> = _selectedIds.asStateFlow()
     val inSelectionMode get() = _selectedIds.value.isNotEmpty()
 
+    /** True while the selected songs are being zipped for sharing. */
+    private val _isZipping = MutableStateFlow(false)
+    val isZipping: StateFlow<Boolean> = _isZipping.asStateFlow()
+
     private val _playlists = MutableStateFlow<List<PlaylistWithSongs>>(emptyList())
     val playlists: StateFlow<List<PlaylistWithSongs>> = _playlists.asStateFlow()
 
@@ -982,6 +986,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 toRemove.sortedDescending().forEach { player.removeMediaItem(it) }
             }
             repository.deleteSongs(ids)
+        }
+    }
+
+    /**
+     * Add every currently selected song to the given playlist. Keeps the
+     * selection active afterwards so the user can add the same batch to more
+     * playlists if they want.
+     */
+    fun addSelectedToPlaylist(playlistId: Long) {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            ids.forEach { repository.addSongToPlaylist(playlistId, it) }
+        }
+    }
+
+    /**
+     * Bundle every currently selected song's media file into "muse_share.zip"
+     * and emit a share intent so the UI can offer to send it to other apps.
+     * Reports progress via [isZipping] and surfaces failures via
+     * [errorEvents]. The selection is cleared once the zip is shared.
+     */
+    fun shareSelectedAsZip() {
+        val ids = _selectedIds.value
+        if (ids.isEmpty()) return
+        if (_isZipping.value) return
+        viewModelScope.launch {
+            _isZipping.value = true
+            try {
+                val songs = _songs.value.filter { it.id in ids }
+                val file = repository.zipSongs(songs)
+                if (file == null) {
+                    _errorEvents.emit("None of the selected songs have a file to share")
+                    return@launch
+                }
+                val context = getApplication<Application>()
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TITLE, file.name)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                _shareIntents.emit(Intent.createChooser(shareIntent, "Share selected songs"))
+                clearSelection()
+            } catch (e: Exception) {
+                _errorEvents.emit("Failed to create zip: ${e.localizedMessage}")
+            } finally {
+                _isZipping.value = false
+            }
         }
     }
 

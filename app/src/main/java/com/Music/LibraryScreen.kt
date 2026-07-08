@@ -69,6 +69,7 @@ fun LibraryScreen(
     val isImporting     by viewModel.isImporting.collectAsState()
     val selectedIds     by viewModel.selectedIds.collectAsState()
     val inSelection     = selectedIds.isNotEmpty()
+    val isZipping       by viewModel.isZipping.collectAsState()
     val playlists       by viewModel.playlists.collectAsState()
     val queue           by viewModel.queue.collectAsState()
     val playlistFetch   by viewModel.playlistFetch.collectAsState()
@@ -77,6 +78,7 @@ fun LibraryScreen(
     var selectedTab          by remember { mutableIntStateOf(0) }
     var showAdd              by remember { mutableStateOf(false) }
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
+    var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var searchQuery by remember { mutableStateOf("") }
@@ -135,6 +137,25 @@ fun LibraryScreen(
                         Text("${selectedIds.size} selected", fontWeight = FontWeight.SemiBold)
                     },
                     actions = {
+                        IconButton(
+                            onClick = { showAddSelectedToPlaylist = true },
+                            enabled = playlists.isNotEmpty()
+                        ) {
+                            Icon(Icons.Default.PlaylistAdd, "Add selected to playlist")
+                        }
+                        IconButton(
+                            onClick = { viewModel.shareSelectedAsZip() },
+                            enabled = !isZipping
+                        ) {
+                            if (isZipping) {
+                                CircularProgressIndicator(
+                                    Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.FolderZip, "Share selected as ZIP")
+                            }
+                        }
                         IconButton(onClick = { viewModel.selectAll() }) {
                             Icon(Icons.Default.SelectAll, "Select all")
                         }
@@ -374,6 +395,17 @@ fun LibraryScreen(
             NewPlaylistDialog(
                 onConfirm = { name -> viewModel.createPlaylist(name); showNewPlaylistDialog = false },
                 onDismiss = { showNewPlaylistDialog = false }
+            )
+        }
+
+        if (showAddSelectedToPlaylist) {
+            AddToPlaylistDialog(
+                playlists = playlists.map { it.playlist },
+                onSelect  = { plId ->
+                    viewModel.addSelectedToPlaylist(plId)
+                    showAddSelectedToPlaylist = false
+                },
+                onDismiss = { showAddSelectedToPlaylist = false }
             )
         }
     }

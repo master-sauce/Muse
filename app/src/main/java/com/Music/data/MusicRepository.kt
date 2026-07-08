@@ -152,6 +152,48 @@ class MusicRepository(
     }
 
     /**
+     * Bundle the given songs' media files into a single ZIP archive named
+     * "muse_share.zip" in the app's external downloads directory, so it can be
+     * shared via the existing FileProvider. Files that no longer exist on disk
+     * are silently skipped. Entry names are sanitized to "Artist - Title.ext"
+     * (falling back to the original filename) and de-duplicated so two songs
+     * with the same name don't clobber each other inside the archive.
+     *
+     * @return the written [File], or null if none of the songs had an
+     *         existing media file to include.
+     */
+    suspend fun zipSongs(songs: List<SongEntity>): File? = withContext(Dispatchers.IO) {
+        val toZip = songs.filter { File(it.filePath).exists() }
+        if (toZip.isEmpty()) return@withContext null
+
+        val dir = File(context.getExternalFilesDir(null), "downloads").also { it.mkdirs() }
+        val zipFile = File(dir, "muse_share.zip")
+        if (zipFile.exists()) zipFile.delete()
+
+        val usedNames = mutableSetOf<String>()
+        java.util.zip.ZipOutputStream(zipFile.outputStream().buffered()).use { zos ->
+            toZip.forEach { song ->
+                val src = File(song.filePath)
+                val ext = src.extension.ifBlank { "mp3" }
+                val base = "${song.artist} - ${song.title}"
+                    .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                    .trim()
+                    .ifBlank { src.nameWithoutExtension }
+                var name = "$base.$ext"
+                var n = 1
+                while (!usedNames.add(name)) {
+                    name = "$base ($n).$ext"
+                    n++
+                }
+                zos.putNextEntry(java.util.zip.ZipEntry(name))
+                src.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
+        }
+        zipFile
+    }
+
+    /**
      * Read a links file (one URL per line, also tolerating comma-separated
      * values) picked by the user via a document-open intent, and return the
      * list of non-blank URLs in file order. This is the import counterpart to
