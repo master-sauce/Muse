@@ -22,7 +22,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "Muse"
 include(":app")
-
-
-
-
