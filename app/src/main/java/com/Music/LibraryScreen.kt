@@ -330,8 +330,6 @@ fun LibraryScreen(
                         onRemoveFromQueue = { id -> viewModel.removeFromQueue(id) },
                         onLongPress     = { id -> viewModel.toggleSelect(id) },
                         onToggleSelect  = { id -> viewModel.toggleSelect(id) },
-                        onSelectIds     = { viewModel.selectIds(it) },
-                        onDeselectIds   = { viewModel.deselectIds(it) },
                         onDelete        = { song -> viewModel.deleteSong(song) },
                         onAddToPlaylist = { songId, plId -> viewModel.addSongToPlaylist(plId, songId) },
                         onStartDrag     = { viewModel.startDrag() },
@@ -433,8 +431,6 @@ private fun SongsTab(
     onRemoveFromQueue: (String) -> Unit,
     onLongPress: (String) -> Unit,
     onToggleSelect: (String) -> Unit,
-    onSelectIds: (Collection<String>) -> Unit,
-    onDeselectIds: (Collection<String>) -> Unit,
     onDelete: (SongEntity) -> Unit,
     onAddToPlaylist: (songId: String, playlistId: Long) -> Unit,
     onStartDrag: () -> Unit,
@@ -463,17 +459,12 @@ private fun SongsTab(
     }
 
     // ── Drag-to-select ────────────────────────────────────────────────────
-    // A long press on a song selects it (entering selection mode). Keeping
-    // the finger down and dragging across other songs selects — or deselects,
-    // depending on the anchor song's state — every song the finger passes
-    // over. The direction is locked to the anchor so the gesture is always
-    // predictable instead of toggling items randomly.
+    // A long press toggles the anchor song (entering selection mode). Keeping
+    // the finger down and dragging across other songs toggles each one as the
+    // finger enters it — so dragging back over a marked song deselects it.
     val currentSongs     by rememberUpdatedState(songs)
-    val currentSelected  by rememberUpdatedState(selectedIds)
-    val selectIdsCb      by rememberUpdatedState(onSelectIds)
-    val deselectIdsCb    by rememberUpdatedState(onDeselectIds)
+    val toggleSelectCb   by rememberUpdatedState(onToggleSelect)
     var dragSelectActive by remember { mutableStateOf(false) }
-    var dragSelectAdd    by remember { mutableStateOf(true) }
     var lastDragIndex    by remember { mutableStateOf(-1) }
 
     fun itemInfoAt(y: Float) =
@@ -490,22 +481,17 @@ private fun SongsTab(
                     onDragStart = { offset ->
                         val info = itemInfoAt(offset.y) ?: return@detectDragGesturesAfterLongPress
                         val id   = currentSongs.getOrNull(info.index)?.id ?: return@detectDragGesturesAfterLongPress
-                        dragSelectAdd    = id !in currentSelected
                         dragSelectActive = true
                         lastDragIndex    = info.index
-                        if (dragSelectAdd) selectIdsCb(listOf(id)) else deselectIdsCb(listOf(id))
+                        toggleSelectCb(id)
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onDrag = { change, _ ->
                         if (!dragSelectActive) return@detectDragGesturesAfterLongPress
                         val info = itemInfoAt(change.position.y) ?: return@detectDragGesturesAfterLongPress
                         if (info.index != lastDragIndex) {
-                            val from = minOf(lastDragIndex, info.index)
-                            val to   = maxOf(lastDragIndex, info.index)
-                            val ids  = (from..to).mapNotNull { currentSongs.getOrNull(it)?.id }
-                            if (ids.isNotEmpty()) {
-                                if (dragSelectAdd) selectIdsCb(ids) else deselectIdsCb(ids)
-                            }
+                            val id = currentSongs.getOrNull(info.index)?.id
+                            if (id != null) toggleSelectCb(id)
                             lastDragIndex = info.index
                         }
                         change.consume()

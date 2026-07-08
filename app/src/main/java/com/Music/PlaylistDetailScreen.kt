@@ -146,15 +146,12 @@ fun PlaylistDetailScreen(
             }
 
             // ── Drag-to-select ────────────────────────────────────────────────
-            // Same gesture as the library: long press selects the anchor song,
-            // then dragging across other songs selects (or deselects, based on
-            // the anchor's state) every song the finger passes over.
-            val currentSongs    by rememberUpdatedState(songs)
-            val currentSelected by rememberUpdatedState(selectedIds)
-            val selectIdsCb     by rememberUpdatedState { ids: Collection<String> -> viewModel.selectPlaylistIds(ids) }
-            val deselectIdsCb   by rememberUpdatedState { ids: Collection<String> -> viewModel.deselectPlaylistIds(ids) }
+            // Same gesture as the library: long press toggles the anchor song,
+            // then dragging across other songs toggles each one as the finger
+            // enters it — so dragging back over a marked song deselects it.
+            val currentSongs     by rememberUpdatedState(songs)
+            val toggleSelectCb   by rememberUpdatedState { id: String -> viewModel.togglePlaylistSelect(id) }
             var dragSelectActive by remember { mutableStateOf(false) }
-            var dragSelectAdd    by remember { mutableStateOf(true) }
             var lastDragIndex    by remember { mutableStateOf(-1) }
 
             fun itemInfoAt(y: Float) =
@@ -175,10 +172,9 @@ fun PlaylistDetailScreen(
                                 // header, so song rows start at index 1.
                                 val songIndex = info.index - 1
                                 val id = currentSongs.getOrNull(songIndex)?.id ?: return@detectDragGesturesAfterLongPress
-                                dragSelectAdd    = id !in currentSelected
                                 dragSelectActive = true
                                 lastDragIndex    = songIndex
-                                if (dragSelectAdd) selectIdsCb(listOf(id)) else deselectIdsCb(listOf(id))
+                                toggleSelectCb(id)
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
                             onDrag = { change, _ ->
@@ -187,12 +183,8 @@ fun PlaylistDetailScreen(
                                 val songIndex = info.index - 1
                                 if (songIndex < 0) return@detectDragGesturesAfterLongPress
                                 if (songIndex != lastDragIndex) {
-                                    val from = minOf(lastDragIndex, songIndex)
-                                    val to   = maxOf(lastDragIndex, songIndex)
-                                    val ids  = (from..to).mapNotNull { currentSongs.getOrNull(it)?.id }
-                                    if (ids.isNotEmpty()) {
-                                        if (dragSelectAdd) selectIdsCb(ids) else deselectIdsCb(ids)
-                                    }
+                                    val id = currentSongs.getOrNull(songIndex)?.id
+                                    if (id != null) toggleSelectCb(id)
                                     lastDragIndex = songIndex
                                 }
                                 change.consume()
