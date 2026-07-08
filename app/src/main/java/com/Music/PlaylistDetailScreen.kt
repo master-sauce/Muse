@@ -115,7 +115,7 @@ fun PlaylistDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick  = { viewModel.playSongList(songs, 0); onNavigateToPlayer() },
+                            onClick  = { viewModel.playSongList(songs, 0); onPlayFromList() },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
                         ) {
@@ -127,7 +127,7 @@ fun PlaylistDetailScreen(
                             onClick  = {
                                 viewModel.toggleShuffle()
                                 viewModel.playSongList(songs, 0)
-                                onNavigateToPlayer()
+                                onPlayFromList()
                             },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
