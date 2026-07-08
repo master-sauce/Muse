@@ -973,6 +973,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleSelect(id: String) {
         _selectedIds.value = _selectedIds.value.toMutableSet().also { if (!it.add(id)) it.remove(id) }
     }
+
+    /** Add [ids] to the current selection (no-op for ids already selected). */
+    fun selectIds(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        _selectedIds.value = _selectedIds.value + ids
+    }
+
+    /** Remove [ids] from the current selection. */
+    fun deselectIds(ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        _selectedIds.value = _selectedIds.value - ids
+    }
+
     fun selectAll()      { _selectedIds.value = _songs.value.map { it.id }.toSet() }
     fun clearSelection() { _selectedIds.value = emptySet() }
 

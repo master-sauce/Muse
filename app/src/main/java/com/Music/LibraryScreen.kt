@@ -11,6 +11,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,6 +34,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -328,6 +330,8 @@ fun LibraryScreen(
                         onRemoveFromQueue = { id -> viewModel.removeFromQueue(id) },
                         onLongPress     = { id -> viewModel.toggleSelect(id) },
                         onToggleSelect  = { id -> viewModel.toggleSelect(id) },
+                        onSelectIds     = { viewModel.selectIds(it) },
+                        onDeselectIds   = { viewModel.deselectIds(it) },
                         onDelete        = { song -> viewModel.deleteSong(song) },
                         onAddToPlaylist = { songId, plId -> viewModel.addSongToPlaylist(plId, songId) },
                         onStartDrag     = { viewModel.startDrag() },
@@ -429,6 +433,8 @@ private fun SongsTab(
     onRemoveFromQueue: (String) -> Unit,
     onLongPress: (String) -> Unit,
     onToggleSelect: (String) -> Unit,
+    onSelectIds: (Collection<String>) -> Unit,
+    onDeselectIds: (Collection<String>) -> Unit,
     onDelete: (SongEntity) -> Unit,
     onAddToPlaylist: (songId: String, playlistId: Long) -> Unit,
     onStartDrag: () -> Unit,
@@ -456,9 +462,58 @@ private fun SongsTab(
         onMove(from.index, to.index)
     }
 
+    // ── Drag-to-select ────────────────────────────────────────────────────
+    // A long press on a song selects it (entering selection mode). Keeping
+    // the finger down and dragging across other songs selects — or deselects,
+    // depending on the anchor song's state — every song the finger passes
+    // over. The direction is locked to the anchor so the gesture is always
+    // predictable instead of toggling items randomly.
+    val currentSongs     by rememberUpdatedState(songs)
+    val currentSelected  by rememberUpdatedState(selectedIds)
+    val selectIdsCb      by rememberUpdatedState(onSelectIds)
+    val deselectIdsCb    by rememberUpdatedState(onDeselectIds)
+    var dragSelectActive by remember { mutableStateOf(false) }
+    var dragSelectAdd    by remember { mutableStateOf(true) }
+    var lastDragIndex    by remember { mutableStateOf(-1) }
+
+    fun itemInfoAt(y: Float) =
+        lazyListState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+            y >= info.offset && y < info.offset + info.size
+        }
+
     LazyColumn(
-        state          = lazyListState,
-        modifier       = Modifier.fillMaxSize(),
+        state    = lazyListState,
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { offset ->
+                        val info = itemInfoAt(offset.y) ?: return@detectDragGesturesAfterLongPress
+                        val id   = currentSongs.getOrNull(info.index)?.id ?: return@detectDragGesturesAfterLongPress
+                        dragSelectAdd    = id !in currentSelected
+                        dragSelectActive = true
+                        lastDragIndex    = info.index
+                        if (dragSelectAdd) selectIdsCb(listOf(id)) else deselectIdsCb(listOf(id))
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onDrag = { change, _ ->
+                        if (!dragSelectActive) return@detectDragGesturesAfterLongPress
+                        val info = itemInfoAt(change.position.y) ?: return@detectDragGesturesAfterLongPress
+                        if (info.index != lastDragIndex) {
+                            val from = minOf(lastDragIndex, info.index)
+                            val to   = maxOf(lastDragIndex, info.index)
+                            val ids  = (from..to).mapNotNull { currentSongs.getOrNull(it)?.id }
+                            if (ids.isNotEmpty()) {
+                                if (dragSelectAdd) selectIdsCb(ids) else deselectIdsCb(ids)
+                            }
+                            lastDragIndex = info.index
+                        }
+                        change.consume()
+                    },
+                    onDragEnd    = { dragSelectActive = false; lastDragIndex = -1 },
+                    onDragCancel = { dragSelectActive = false; lastDragIndex = -1 }
+                )
+            },
         contentPadding = PaddingValues(bottom = 8.dp)
     ) {
         items(songs, key = { it.id }) { song ->
@@ -585,8 +640,7 @@ fun SongListItem(
                 else MaterialTheme.colorScheme.primaryContainer.copy(alpha = bgAlpha)
             )
             .combinedClickable(
-                onClick     = { if (inSelection) onToggleSelect() else onPlay() },
-                onLongClick = onLongPress
+                onClick = { if (inSelection) onToggleSelect() else onPlay() }
             ),
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
