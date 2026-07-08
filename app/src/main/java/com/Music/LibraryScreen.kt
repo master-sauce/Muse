@@ -3,6 +3,7 @@ package com.Music
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,7 +79,10 @@ fun LibraryScreen(
     val playlistFetch   by viewModel.playlistFetch.collectAsState()
     val batchDownload   by viewModel.batchDownload.collectAsState()
 
-    var selectedTab          by remember { mutableIntStateOf(0) }
+    // Persist the active tab across navigation (e.g. returning from a
+    // playlist detail screen lands back on the Playlists tab) and across
+    // configuration changes.
+    var selectedTab          by rememberSaveable { mutableIntStateOf(0) }
     var showAdd              by remember { mutableStateOf(false) }
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
@@ -88,6 +93,23 @@ fun LibraryScreen(
     val focusRequester = remember { FocusRequester() }
 
     val context = LocalContext.current
+
+    // ── Back-button handling ──────────────────────────────────────────────
+    // Priority: open dialogs/sheets → selection mode → search → non-Songs
+    // tab → Songs tab (let the system handle back, i.e. exit the app).
+    BackHandler(enabled = showAdd) { showAdd = false }
+    BackHandler(enabled = showNewPlaylistDialog) { showNewPlaylistDialog = false }
+    BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
+    BackHandler(enabled = inSelection) { viewModel.clearSelection() }
+    BackHandler(enabled = isSearching && selectedTab == 0) {
+        isSearching = false
+        searchQuery = ""
+    }
+    // On the Queue or Playlists tab, back returns to the Songs tab instead of
+    // leaving the app.
+    BackHandler(enabled = !inSelection && !isSearching && selectedTab != 0) {
+        selectedTab = 0
+    }
 
     val filteredSongs = remember(songs, searchQuery) {
         if (searchQuery.isEmpty()) songs

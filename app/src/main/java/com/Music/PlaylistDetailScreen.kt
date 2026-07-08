@@ -3,6 +3,7 @@ package com.Music
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -70,6 +71,12 @@ fun PlaylistDetailScreen(
     DisposableEffect(playlistId) {
         onDispose { viewModel.clearPlaylistSelection() }
     }
+
+    // ── Back-button handling ──────────────────────────────────────────────
+    // In selection mode, back clears the selection instead of leaving the
+    // screen. The "add selected to playlist" dialog is handled next.
+    BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
+    BackHandler(enabled = inSelection) { viewModel.clearPlaylistSelection() }
 
     Scaffold(
         topBar = {
