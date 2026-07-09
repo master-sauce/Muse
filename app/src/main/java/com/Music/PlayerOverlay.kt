@@ -131,7 +131,7 @@ fun PlayerOverlay(
                 // StiffnessHigh (10000f) — a quick, responsive morph.
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness    = 1500f
+                    stiffness    = Spring.StiffnessMedium
                 )
             )
             // Once the expand animation finishes, clear the openExpanded flag
