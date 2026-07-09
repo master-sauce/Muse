@@ -44,6 +44,16 @@
             </intent-filter>
         </service>
 
+        <!-- Receives the Cancel action from download progress notifications.
+             Not exported: only the system notification action (same app) fires it. -->
+        <receiver
+            android:name=".downloader.DownloadCancelReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.Music.action.CANCEL_DOWNLOAD" />
+            </intent-filter>
+        </receiver>
+
         <!-- FileProvider — required for sharing song files via ACTION_SEND -->
         <provider
             android:name="androidx.core.content.FileProvider"

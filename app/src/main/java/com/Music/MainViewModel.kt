@@ -24,7 +24,9 @@ import com.Music.data.remote.LyricsService
 import com.Music.data.remote.LrcParser
 import com.Music.data.remote.LyricsState
 import com.Music.data.remote.OdesliService
+import com.Music.downloader.DownloadCancelRegistry
 import com.Music.downloader.DownloadManager
+import com.Music.downloader.DownloadNotificationManager
 import com.Music.downloader.PlaylistEntry
 import com.Music.player.PlaybackService
 import com.google.common.util.concurrent.ListenableFuture
@@ -88,6 +90,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MusicRepository(
         db.songDao(), db.playlistDao(), odesliService, DownloadManager(application), application
     )
+
+    /** Drives the download progress notification (ongoing, non-swipeable, with Cancel). */
+    private val downloadNotifications = DownloadNotificationManager(application)
 
     private val _songs = MutableStateFlow<List<SongEntity>>(emptyList())
     val songs: StateFlow<List<SongEntity>> = _songs.asStateFlow()
@@ -401,7 +406,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 
                 val taskId = System.currentTimeMillis().toString() + singleUrl.hashCode()
                 _activeDownloads.update { it + (taskId to DownloadTask(taskId, singleUrl)) }
-                
+
+                // Show an ongoing (non-swipeable) progress notification for this
+                // download. Its Cancel action cancels this specific download.
+                downloadNotifications.showProgress(taskId, title = null, progress = 0f)
+                DownloadCancelRegistry.register(taskId) { repository.cancelDownload(taskId) }
+
                 try {
                     repository.downloadAndSave(
                         url = singleUrl,
@@ -410,17 +420,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             _activeDownloads.update { tasks ->
                                 tasks[taskId]?.let { tasks + (taskId to it.copy(title = title)) } ?: tasks
                             }
+                            downloadNotifications.showProgress(taskId, title, 0f)
                         },
                         onProgress = { progress ->
                             _activeDownloads.update { tasks ->
                                 tasks[taskId]?.let { tasks + (taskId to it.copy(progress = progress)) } ?: tasks
                             }
+                            val currentTitle = _activeDownloads.value[taskId]?.title
+                            downloadNotifications.showProgress(taskId, currentTitle, progress)
                         }
                     )
                 } catch (e: Exception) {
                     _errorEvents.emit("Download failed: ${e.localizedMessage}")
                 } finally {
                     _activeDownloads.update { it - taskId }
+                    DownloadCancelRegistry.unregister(taskId)
+                    downloadNotifications.finish(taskId)
                 }
             }
         }
@@ -543,6 +558,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 completed = 0,
                 isRunning = true
             )
+            // Ongoing batch notification: cannot be swiped away, only cancelled
+            // via its Cancel action (which calls cancelPlaylistDownload).
+            downloadNotifications.showBatchProgress(0, entries.size, null, 0f)
+            DownloadCancelRegistry.register(DownloadCancelRegistry.BATCH_ID) { cancelPlaylistDownload() }
             var completed = 0
             try {
                 for (entry in entries) {
@@ -552,6 +571,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     if (repository.isSongDownloaded(entry.url)) {
                         completed++
                         _batchDownload.value = _batchDownload.value.copy(completed = completed)
+                        downloadNotifications.showBatchProgress(completed, entries.size, null, 0f)
                         continue
                     }
 
@@ -562,6 +582,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         currentTitle = entry.title,
                         currentProgress = 0f
                     )
+                    downloadNotifications.showBatchProgress(completed, entries.size, entry.title, 0f)
 
                     try {
                         repository.downloadAndSave(
@@ -570,6 +591,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             processId = processId,
                             onProgress = { progress ->
                                 _batchDownload.value = _batchDownload.value.copy(currentProgress = progress)
+                                downloadNotifications.showBatchProgress(
+                                    completed, entries.size, entry.title, progress
+                                )
                             }
                         )
                         completed++
@@ -577,6 +601,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             completed = completed,
                             currentProgress = 100f
                         )
+                        downloadNotifications.showBatchProgress(completed, entries.size, entry.title, 100f)
                     } catch (e: com.yausername.youtubedl_android.YoutubeDL.CanceledException) {
                         // Cancelled by the user — stop the whole batch.
                         break
@@ -588,6 +613,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         _errorEvents.emit("Skipped \"${entry.title}\": ${e.localizedMessage}")
                         completed++
                         _batchDownload.value = _batchDownload.value.copy(completed = completed)
+                        downloadNotifications.showBatchProgress(completed, entries.size, entry.title, 100f)
                     }
                 }
             } finally {
@@ -599,6 +625,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     isCancelling = false
                 )
                 currentProcessId = null
+                DownloadCancelRegistry.unregister(DownloadCancelRegistry.BATCH_ID)
+                downloadNotifications.finishBatch()
                 if (wasCancelled) _errorEvents.emit("Download cancelled — $completed/${entries.size} done")
             }
         }
@@ -1115,5 +1143,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         progressJob?.cancel()
         playlistSongsJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
+        // Drop any still-registered cancel callbacks so a stale notification
+        // action can't reach a destroyed ViewModel.
+        DownloadCancelRegistry.clear()
     }
 }
