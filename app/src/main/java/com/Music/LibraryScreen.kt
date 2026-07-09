@@ -281,9 +281,12 @@ fun LibraryScreen(
                     bottom = padding.calculateBottomPadding() + bottomInset
                 )
         ) {
-            // Global Download Meter
+            // Global Download Meter — only for single-song (link) downloads and
+            // local imports. Batch/playlist downloads are tracked inside the
+            // Add Music > Playlist tab, so we deliberately do NOT show this bar
+            // when only a batch is running (avoids a redundant "blue thingy").
             AnimatedVisibility(
-                visible = isDownloading || isImporting,
+                visible = activeDownloads.isNotEmpty() || isImporting,
                 enter   = expandVertically() + fadeIn(),
                 exit    = shrinkVertically() + fadeOut()
             ) {
