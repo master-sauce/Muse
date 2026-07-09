@@ -17,6 +17,8 @@
     <!-- Foreground service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Keeps the download process alive when the app is closed -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Media notification (API 33+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -43,6 +45,14 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <!-- Download service: keeps the process alive so downloads continue
+             even when the app is closed. The actual download work lives in
+             DownloadState; this service only holds the foreground slot. -->
+        <service
+            android:name=".player.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Receives the Cancel action from download progress notifications.
              Not exported: only the system notification action (same app) fires it. -->

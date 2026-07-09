@@ -1,5 +1,6 @@
 package com.Music.downloader
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,18 +12,23 @@ import com.Music.MainActivity
 import com.Music.R
 
 /**
- * Manages the download progress notification.
+ * Manages the SINGLE foreground download notification.
  *
- * The notification is **ongoing** ([NotificationCompat.Builder.setOngoing] = true), which
- * prevents the user from dismissing it by swiping it away — it can only be removed by
- * tapping the built-in **Cancel** action (which fires [DownloadCancelReceiver]) or by the
- * download finishing / being cancelled programmatically (see [cancel] / [finish]).
+ * There is exactly one notification (id [FOREGROUND_NOTIFICATION_ID]) that is
+ * simultaneously:
+ *  - the **foreground-service** notification for
+ *    [com.Music.player.DownloadService] (which keeps the app process alive so
+ *    downloads continue even when the app is closed), and
+ *  - the **user-visible progress** notification.
  *
- * Two flavours are supported:
- *  - A **single** download notification keyed by the download's taskId, showing that
- *    song's 0–100 % progress.
- *  - A **batch** download notification (playlist / links-file import) showing
- *    `completed / total` plus the current song's progress, with an overall progress bar.
+ * Because it is a foreground notification it CANNOT be swiped away by the
+ * user — it is only removed by [finish] (called once every download has
+ * completed) or by tapping the built-in **Cancel** action (which fires
+ * [DownloadCancelReceiver] with [DownloadCancelRegistry.ALL_ID] and cancels
+ * every active download).
+ *
+ * The notification aggregates all active downloads (single-song downloads plus
+ * an optional batch/playlist download) into one progress bar.
  */
 class DownloadNotificationManager(private val context: Context) {
 
@@ -60,100 +66,99 @@ class DownloadNotificationManager(private val context: Context) {
     }
 
     /**
-     * Build the **Cancel** action's PendingIntent for the given [cancelId].
-     *
-     * [cancelId] is whatever the caller registered with [DownloadCancelRegistry.register]
-     * — i.e. the single-download taskId or the batch sentinel
-     * [DownloadCancelRegistry.BATCH_ID].
+     * Build the **Cancel** action's PendingIntent. The Cancel button cancels
+     * *every* active download (single + batch) via
+     * [DownloadCancelRegistry.ALL_ID].
      */
-    private fun cancelIntent(cancelId: String): PendingIntent {
+    private fun cancelAllIntent(): PendingIntent {
         val intent = Intent(context, DownloadCancelReceiver::class.java).apply {
             action = DownloadCancelReceiver.ACTION_CANCEL
-            putExtra(DownloadCancelReceiver.EXTRA_CANCEL_ID, cancelId)
+            putExtra(DownloadCancelReceiver.EXTRA_CANCEL_ID, DownloadCancelRegistry.ALL_ID)
         }
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M)
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         else PendingIntent.FLAG_UPDATE_CURRENT
-        // Unique request code per cancelId so each notification gets its own action.
         return PendingIntent.getBroadcast(
-            context, cancelId.hashCode(), intent, flags
+            context, DownloadCancelRegistry.ALL_ID.hashCode(), intent, flags
         )
     }
 
-    // ── Single download ────────────────────────────────────────────────────
+    /**
+     * The lightweight notification used to claim the foreground slot when the
+     * service starts (before any progress is known). Ongoing + non-dismissable.
+     * Uses the SAME id as [showAggregateProgress] so subsequent progress
+     * updates replace this placeholder in place while keeping the foreground
+     * status.
+     */
+    fun buildForegroundNotification(): Notification =
+        baseBuilder()
+            .setContentTitle("Muse")
+            .setContentText("Preparing download...")
+            .setProgress(0, 0, /* indeterminate = */ true)
+            .addAction(R.drawable.ic_launcher_foreground, "Cancel", cancelAllIntent())
+            .build()
 
     /**
-     * Show / update the progress notification for a single download.
+     * Update the single foreground notification with aggregate progress across
+     * all active downloads (single-song downloads plus an optional batch).
      *
-     * @param taskId  stable id used as the notification id (and as the cancel id)
-     * @param title   song title, or null while metadata is still being fetched
-     * @param progress 0f..100f
+     * @param singles  the currently active single-song downloads (taskId -> task)
+     * @param batch    the current batch-download state (may be idle)
      */
-    fun showProgress(taskId: String, title: String?, progress: Float) {
-        val id = notificationId(taskId)
-        val percent = progress.coerceIn(0f, 100f).toInt()
-        val builder = baseBuilder()
-            .setContentTitle(title ?: "Downloading...")
-            .setContentText("$percent%")
-            .setProgress(100, percent, /* indeterminate = */ false)
-            .addAction(
-                R.drawable.ic_launcher_foreground,
-                "Cancel",
-                cancelIntent(taskId)
-            )
-        notificationManager.notify(id, builder.build())
-    }
-
-    /**
-     * Mark a single download as finished and remove its notification.
-     *
-     * Removing the notification is what finally lets it be dismissed — while a
-     * download is in progress the notification is ongoing and cannot be swiped
-     * away, only cancelled via the Cancel action.
-     */
-    fun finish(taskId: String) {
-        notificationManager.cancel(notificationId(taskId))
-    }
-
-    // ── Batch download ─────────────────────────────────────────────────────
-
-    /**
-     * Show / update the batch download notification.
-     *
-     * @param completed   how many songs in the batch have finished
-     * @param total       total songs in the batch
-     * @param currentTitle  title of the song currently downloading (nullable)
-     * @param currentProgress 0f..100f progress of the current song
-     */
-    fun showBatchProgress(
-        completed: Int,
-        total: Int,
-        currentTitle: String?,
-        currentProgress: Float
+    fun showAggregateProgress(
+        singles: Map<String, DownloadTask>,
+        batch: BatchDownloadState
     ) {
-        val overallFloat = if (total > 0) {
-            (completed + currentProgress.coerceIn(0f, 100f) / 100f) / total
-        } else 0f
-        val overallPercent = (overallFloat * 100f).coerceIn(0f, 100f).toInt()
+        val singleCount = singles.size
+        val batchRunning = batch.isRunning
+        val totalActive = singleCount + (if (batchRunning) 1 else 0)
+        if (totalActive == 0) return
 
-        val title = "Downloading playlist • $completed/$total"
-        val text = currentTitle ?: "Preparing..."
+        val title: String
+        val text: String
+        val percent: Int
+
+        if (batchRunning) {
+            // Batch dominates the display.
+            val overall = if (batch.total > 0) {
+                ((batch.completed + batch.currentProgress.coerceIn(0f, 100f) / 100f) / batch.total) * 100f
+            } else 0f
+            percent = overall.coerceIn(0f, 100f).toInt()
+            title = "Downloading playlist • ${batch.completed}/${batch.total}"
+            text = when {
+                singleCount > 0 -> "${batch.currentTitle ?: "Downloading..."} (+ $singleCount more)"
+                else -> batch.currentTitle ?: "Downloading..."
+            }
+        } else if (singleCount == 1) {
+            val task = singles.values.first()
+            percent = task.progress.coerceIn(0f, 100f).toInt()
+            title = task.title ?: "Downloading..."
+            text = "$percent%"
+        } else {
+            val avg = singles.values
+                .map { it.progress.coerceIn(0f, 100f) }
+                .average().toFloat()
+            percent = avg.toInt()
+            title = "Downloading • $singleCount songs"
+            text = "$percent% overall"
+        }
 
         val builder = baseBuilder()
             .setContentTitle(title)
             .setContentText(text)
-            .setProgress(100, overallPercent, /* indeterminate = */ false)
-            .addAction(
-                R.drawable.ic_launcher_foreground,
-                "Cancel",
-                cancelIntent(DownloadCancelRegistry.BATCH_ID)
-            )
-        notificationManager.notify(BATCH_NOTIFICATION_ID, builder.build())
+            .setProgress(100, percent, /* indeterminate = */ false)
+            .addAction(R.drawable.ic_launcher_foreground, "Cancel", cancelAllIntent())
+        notificationManager.notify(FOREGROUND_NOTIFICATION_ID, builder.build())
     }
 
-    /** Remove the batch download notification (download done or cancelled). */
-    fun finishBatch() {
-        notificationManager.cancel(BATCH_NOTIFICATION_ID)
+    /**
+     * Remove the foreground notification. Only call this once EVERY download
+     * has finished — while anything is downloading the notification must stay
+     * (it is the foreground notification that keeps the process alive and is
+     * non-dismissable).
+     */
+    fun finish() {
+        notificationManager.cancel(FOREGROUND_NOTIFICATION_ID)
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
@@ -172,12 +177,16 @@ class DownloadNotificationManager(private val context: Context) {
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
 
-    private fun notificationId(taskId: String): Int = taskId.hashCode()
-
     companion object {
         private const val CHANNEL_ID = "muse_downloads"
-        // Use a fixed, stable id for the batch notification so updates replace
-        // the previous one instead of stacking.
-        private const val BATCH_NOTIFICATION_ID = 0x4D75_7365.toInt() // "Muse"
+
+        /**
+         * The single, shared notification id used by both
+         * [com.Music.player.DownloadService] (for `startForeground`) and the
+         * progress updates here. Using one id means the progress notification
+         * IS the foreground notification — so it keeps the process alive AND
+         * cannot be swiped away.
+         */
+        const val FOREGROUND_NOTIFICATION_ID = 0x4D75_7365.toInt() // "Muse"
     }
 }

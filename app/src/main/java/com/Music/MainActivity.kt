@@ -65,6 +65,18 @@ fun MusicApp() {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
         }
     }
+    // Errors from the app-scoped download engine (survives Activity death).
+    LaunchedEffect(Unit) {
+        viewModel.downloadErrorEvents.collectLatest {
+            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
+        }
+    }
+    // Share intents emitted by the download engine (links file / library export).
+    LaunchedEffect(Unit) {
+        viewModel.downloadShareIntents.collect { intent ->
+            context.startActivity(intent)
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         NavHost(

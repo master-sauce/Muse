@@ -2,6 +2,7 @@ package com.Music
 
 import android.app.Application
 import android.util.Log
+import com.Music.downloader.DownloadState
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.ffmpeg.FFmpeg
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +16,14 @@ class MuseApp : Application() {
             // Initialize YoutubeDL and FFmpeg
             YoutubeDL.getInstance().init(this)
             FFmpeg.getInstance().init(this)
-            
+
+            // Initialize the app-wide download engine (DB + repository + state).
+            // Must happen before any download is requested. Done here so the
+            // engine and its coroutine scope survive Activity death and keep
+            // downloads running even when the app is closed (backed by
+            // DownloadService as a foreground service).
+            DownloadState.init(this)
+
             // Background update yt-dlp to ensure it works with latest site changes
             // This often fixes the "doesn't do anything" issue when downloading
             CoroutineScope(Dispatchers.IO).launch {

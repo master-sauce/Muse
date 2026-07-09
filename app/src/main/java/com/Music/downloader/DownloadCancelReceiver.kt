@@ -5,19 +5,19 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * Fired when the user taps **Cancel** on a download notification.
+ * Fired when the user taps **Cancel** on the download notification.
  *
  * Looks up the cancel id (passed via [EXTRA_CANCEL_ID]) in
- * [DownloadCancelRegistry] and runs the registered callback — which, for a
- * single download, kills that download's yt-dlp process, and for a batch
- * download, cancels the whole batch.
+ * [DownloadCancelRegistry] and runs the registered callback. The foreground
+ * notification's Cancel button uses [DownloadCancelRegistry.ALL_ID], which
+ * cancels every active download (all single-song downloads plus the batch, if
+ * running).
  *
  * This is the *only* way the user can dismiss an in-progress download
- * notification: the notification is built with `setOngoing(true)`, so swiping
- * it away does nothing. Tapping Cancel both stops the download and lets the
- * notification be removed (the ViewModel calls
- * [DownloadNotificationManager.finish] / [finishBatch] once the download has
- * actually stopped).
+ * notification: it is a foreground notification built with `setOngoing(true)`,
+ * so swiping it away does nothing. Tapping Cancel stops the downloads; once
+ * they have all actually stopped, [DownloadState] removes the notification via
+ * [DownloadNotificationManager.finish].
  */
 class DownloadCancelReceiver : BroadcastReceiver() {
 

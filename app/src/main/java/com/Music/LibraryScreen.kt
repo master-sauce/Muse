@@ -51,7 +51,10 @@ import coil.compose.AsyncImage
 import com.Music.data.local.PlaylistEntity
 import com.Music.data.local.PlaylistWithSongs
 import com.Music.data.local.SongEntity
+import com.Music.downloader.BatchDownloadState
+import com.Music.downloader.DownloadTask
 import com.Music.downloader.PlaylistEntry
+import com.Music.downloader.PlaylistFetchState
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import java.io.File
@@ -143,10 +146,18 @@ fun LibraryScreen(
         if (isSearching) focusRequester.requestFocus()
     }
 
-    // Forward share intents emitted by the ViewModel (e.g. sharing the saved
-    // playlist-links file) to the system.
+    // Forward share intents emitted by the ViewModel (e.g. sharing a zip of
+    // selected songs) to the system.
     LaunchedEffect(Unit) {
         viewModel.shareIntents.collect { intent ->
+            context.startActivity(intent)
+        }
+    }
+    // Forward share intents emitted by the download engine (links file /
+    // library export) to the system. These come from the app-scoped
+    // DownloadState so they work even if the Activity is recreated.
+    LaunchedEffect(Unit) {
+        viewModel.downloadShareIntents.collect { intent ->
             context.startActivity(intent)
         }
     }
@@ -304,6 +315,18 @@ fun LibraryScreen(
                                         overflow   = TextOverflow.Ellipsis,
                                         modifier   = Modifier.weight(1f)
                                     )
+                                    // X button to cancel this download mid-flight
+                                    IconButton(
+                                        onClick = { viewModel.cancelDownload(task.id) },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Cancel download",
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 LinearProgressIndicator(
@@ -398,6 +421,7 @@ fun LibraryScreen(
                     playlistFetch    = playlistFetch,
                     batchDownload    = batchDownload,
                     onDownload       = { url -> viewModel.downloadSong(url); showAdd = false },
+                    onCancelDownload = { taskId -> viewModel.cancelDownload(taskId) },
                     onPickFile       = {
                         pickFile.launch(arrayOf("audio/*", "video/*"))
                         showAdd = false
@@ -1313,6 +1337,7 @@ fun AddMusicSheet(
     playlistFetch: PlaylistFetchState,
     batchDownload: BatchDownloadState,
     onDownload: (String) -> Unit,
+    onCancelDownload: (String) -> Unit,
     onPickFile: () -> Unit,
     onPickFolder: () -> Unit,
     onFetchPlaylist: (String) -> Unit,
@@ -1403,6 +1428,18 @@ fun AddMusicSheet(
                                             overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.weight(1f)
                                         )
+                                        // X button to cancel this download mid-flight
+                                        IconButton(
+                                            onClick = { onCancelDownload(task.id) },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Close,
+                                                contentDescription = "Cancel download",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
                                     }
                                     LinearProgressIndicator(
                                         progress = { task.progress / 100f },
