@@ -30,31 +30,6 @@ Background Playback — Mini player, shuffle, repeat, seek, skip. Full MediaSess
 🔒 No Accounts, No Ads, No Paywalls
 Just a music player that respects your files and your privacy.
 
-
-
----
-
-## Project Structure
-
-```
-app/src/main/java/com/Music/
-│   data/
-│   │   ├── local/          // Room entities, DAOs, database
-│   │   ├── remote/         // Retrofit services (Odesli, Lyrics)
-│   │   └── MusicRepository.kt
-│   downloader/            // DownloadManager (yt-dlp wrapper)
-│   player/                // PlaybackService (MediaSession)
-│   ui/theme/              // Material 3 theme, colors, typography
-│   MainActivity.kt
-│   MainViewModel.kt
-│   LibraryScreen.kt
-│   PlayerScreen.kt
-│   LyricsScreen.kt
-│   PlaylistDetailScreen.kt
-│   MuseApp.kt
-└── AndroidManifest.xml
-```
-
 ---
 
 ## Tech Stack
@@ -157,4 +132,4 @@ This software is provided for educational and archival purposes. Respect creator
 
 ---
 
-> Made with ❤️ for music lovers who demand freedom. Enjoy the glow.
+> Made with ❤️ for music lovers who demand freedom.
