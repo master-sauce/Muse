@@ -180,7 +180,7 @@ fun LibraryScreen(
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Icon(Icons.Default.FolderZip, "Share selected as ZIP")
+                                Icon(Icons.Default.Share, "Share selected as ZIP")
                             }
                         }
                         IconButton(onClick = { viewModel.selectAll() }) {
