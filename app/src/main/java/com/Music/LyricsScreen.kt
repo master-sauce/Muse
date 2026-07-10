@@ -85,7 +85,15 @@ private fun PlainLyrics(text: String) {
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = 28.dp, vertical = 16.dp)
     ) {
-        item { Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 28.sp) }
+        item {
+            Text(
+                text       = text,
+                style      = MaterialTheme.typography.bodyLarge,
+                color      = MaterialTheme.colorScheme.onBackground,
+                fontSize   = 18.sp,
+                lineHeight = 30.sp
+            )
+        }
     }
 }
 
@@ -111,22 +119,22 @@ private fun SyncedLyrics(lines: List<LyricLine>, positionMs: Long) {
             val isPast    = index < currentIndex
             Text(
                 text       = line.text,
-                fontSize   = if (isCurrent) 22.sp else 18.sp,
-                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                fontSize   = if (isCurrent) 24.sp else 19.sp,
+                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                 color      = when {
                     isCurrent -> MaterialTheme.colorScheme.primary
-                    isPast    -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                    else      -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                    isPast    -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    else      -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f)
                 },
-                lineHeight = 32.sp,
+                lineHeight = 34.sp,
                 modifier   = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 6.dp)
                     .then(
                         if (isCurrent) Modifier
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                                RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                                RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 3.dp)
                         else Modifier
                     )
             )
