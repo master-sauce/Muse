@@ -659,7 +659,7 @@ private fun SongsTab(
                         inSelection        = inSelection,
                         isDragging         = isDragging,
                         dragHandleModifier = Modifier.draggableHandle(
-                            enabled       = inSelection && !isFiltered,
+                            enabled       = !inSelection && !isFiltered,
                             onDragStarted = { onStartDrag() },
                             onDragStopped = { onEndDrag() }
                         ),
@@ -815,17 +815,7 @@ fun SongListItem(
             }
         },
         trailingContent = {
-            if (inSelection) {
-                // Reordering is only available in selection mode: show the
-                // drag handle here so the user can move songs around while
-                // the rest of the row toggles selection on tap.
-                Icon(
-                    Icons.Default.DragHandle,
-                    contentDescription = "Drag to reorder",
-                    modifier           = dragHandleModifier.size(20.dp),
-                    tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                )
-            } else {
+            if (!inSelection) {
                 Row(
                     verticalAlignment     = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(0.dp)
@@ -885,6 +875,13 @@ fun SongListItem(
                             )
                         }
                     }
+                    Icon(
+                        Icons.Default.DragHandle,
+                        contentDescription = "Drag to reorder",
+                        modifier           = dragHandleModifier.size(20.dp),
+                        tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    )
+                    Spacer(Modifier.width(4.dp))
                 }
             }
         },

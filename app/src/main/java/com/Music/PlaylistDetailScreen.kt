@@ -316,7 +316,7 @@ fun PlaylistDetailScreen(
                                 inSelection = inSelection,
                                 isDragging  = isDragging,
                                 dragHandleModifier = Modifier.draggableHandle(
-                                    enabled       = inSelection,
+                                    enabled       = !inSelection,
                                     onDragStarted = { viewModel.startDrag() },
                                     onDragStopped = { viewModel.endPlaylistDrag(playlistId) }
                                 ),
@@ -435,17 +435,7 @@ private fun PlaylistSongItem(
             }
         },
         trailingContent = {
-            if (inSelection) {
-                // Reordering is only available in selection mode: show the
-                // drag handle here so the user can move songs around while
-                // the rest of the row toggles selection on tap.
-                Icon(
-                    Icons.Default.DragHandle,
-                    null,
-                    modifier = dragHandleModifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                )
-            } else {
+            if (!inSelection) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         IconButton(onClick = { showMenu = true }) {
@@ -483,6 +473,12 @@ private fun PlaylistSongItem(
                             )
                         }
                     }
+                    Icon(
+                        Icons.Default.DragHandle,
+                        null,
+                        modifier = dragHandleModifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    )
                 }
             }
         },
