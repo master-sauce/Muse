@@ -646,9 +646,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun endDrag() {
-        isDragInProgress = false
+        // Keep the drag flag on until the DB write-back finishes. Otherwise the
+        // allSongs collector un-gates the instant we flip the flag, emitting a
+        // partially-updated list (some rows have new sortOrder, others old) and
+        // causing the list to flicker to a mixed order before settling.
         viewModelScope.launch {
             _songs.value.forEachIndexed { index, song -> repository.updateSortOrder(song.id, index) }
+            isDragInProgress = false
         }
     }
 
@@ -672,9 +676,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun endPlaylistDrag(playlistId: Long) {
-        isDragInProgress = false
+        // Keep the drag flag on until the DB write-back finishes — same reason
+        // as endDrag(): avoids the playlistSongs collector emitting a
+        // partially-reordered list and flickering the UI.
         viewModelScope.launch {
             repository.updatePlaylistSongOrder(playlistId, _playlistSongs.value)
+            isDragInProgress = false
         }
     }
 
