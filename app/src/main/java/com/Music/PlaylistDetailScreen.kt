@@ -48,10 +48,7 @@ fun PlaylistDetailScreen(
     playlistId: Long,
     viewModel: MainViewModel,
     onBack: () -> Unit,
-    onNavigateToPlayer: () -> Unit,
-    // Called when a song is tapped from the playlist. Opens the big player
-    // directly, skipping the mini player so the image only loads once.
-    onPlayFromList: () -> Unit = { onNavigateToPlayer() }
+    onNavigateToPlayer: () -> Unit
 ) {
     val songs           by viewModel.playlistSongs.collectAsState()
     val playlists       by viewModel.playlists.collectAsState()
@@ -248,7 +245,7 @@ fun PlaylistDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick  = { viewModel.playSongList(songs, 0); onPlayFromList() },
+                            onClick  = { viewModel.playSongList(songs, 0) },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
                         ) {
@@ -260,7 +257,6 @@ fun PlaylistDetailScreen(
                             onClick  = {
                                 viewModel.toggleShuffle()
                                 viewModel.playSongList(songs, 0)
-                                onPlayFromList()
                             },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
@@ -325,10 +321,10 @@ fun PlaylistDetailScreen(
                                     if (song.id != currentSong?.id) {
                                         viewModel.playSongList(songs, index)
                                     }
-                                    // Open the big player directly (skip mini
-                                    // player) so the album art only loads in
-                                    // the big player.
-                                    onPlayFromList()
+                                    // Just play from the mini player — don't
+                                    // open the big player. The mini player
+                                    // appears automatically once a song is
+                                    // loaded.
                                 },
                                 onPlayNext = { viewModel.playNext(song) },
                                 onAddToQueue = { viewModel.addToQueue(song) },

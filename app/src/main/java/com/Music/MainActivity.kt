@@ -55,10 +55,6 @@ fun MusicApp() {
     // The morphing player overlay lives above the nav graph so it can slide
     // up from the mini bar regardless of which screen is showing.
     var playerExpanded by remember { mutableStateOf(false) }
-    // When true, opening the player skips the mini-player phase and slides the
-    // big player up directly (image loads only in the big player). Set when a
-    // song is tapped from a list; cleared once the expand animation finishes.
-    var openExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.errorEvents.collectLatest {
@@ -94,14 +90,7 @@ fun MusicApp() {
                 LibraryScreen(
                     viewModel            = viewModel,
                     onNavigateToPlayer   = { playerExpanded = true },
-                    onNavigateToPlaylist = { id -> navController.navigate(Screen.PlaylistDetail.route(id)) },
-                    // Tapping a song from the list opens the big player
-                    // directly, skipping the mini player so the image only
-                    // loads once (in the big player).
-                    onPlayFromList       = {
-                        openExpanded = true
-                        playerExpanded = true
-                    }
+                    onNavigateToPlaylist = { id -> navController.navigate(Screen.PlaylistDetail.route(id)) }
                 )
             }
 
@@ -160,14 +149,7 @@ fun MusicApp() {
                     playlistId         = playlistId,
                     viewModel          = viewModel,
                     onBack             = { navController.popBackStack() },
-                    onNavigateToPlayer = { playerExpanded = true },
-                    // Tapping a song from the playlist opens the big player
-                    // directly, skipping the mini player so the image only
-                    // loads once (in the big player).
-                    onPlayFromList     = {
-                        openExpanded = true
-                        playerExpanded = true
-                    }
+                    onNavigateToPlayer = { playerExpanded = true }
                 )
             }
         }
@@ -183,9 +165,7 @@ fun MusicApp() {
             onNavigateToLyrics = {
                 playerExpanded = false
                 navController.navigate(Screen.Lyrics.route)
-            },
-            openExpanded       = openExpanded,
-            onOpenExpandedDone = { openExpanded = false }
+            }
         )
     }
 }
