@@ -26,6 +26,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -60,6 +62,18 @@ fun PlaylistDetailScreen(
     val inSelection     = selectedIds.isNotEmpty()
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
 
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    val filteredSongs = remember(songs, searchQuery) {
+        if (searchQuery.isEmpty()) songs
+        else songs.filter {
+            it.title.contains(searchQuery, ignoreCase = true) ||
+            it.artist.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
     val haptic = LocalHapticFeedback.current
 
     // Clear the playlist selection whenever we leave this screen.
@@ -75,6 +89,14 @@ fun PlaylistDetailScreen(
     // screen. The "add selected to playlist" dialog is handled next.
     BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
     BackHandler(enabled = inSelection) { viewModel.clearPlaylistSelection() }
+    BackHandler(enabled = isSearching && !inSelection) {
+        isSearching = false
+        searchQuery = ""
+    }
+
+    LaunchedEffect(isSearching) {
+        if (isSearching) focusRequester.requestFocus()
+    }
 
     Scaffold(
         topBar = {
@@ -106,6 +128,38 @@ fun PlaylistDetailScreen(
                         }
                     }
                 )
+            } else if (isSearching) {
+                TopAppBar(
+                    title = {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search songs...") },
+                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                cursorColor = MaterialTheme.colorScheme.primary
+                            ),
+                            textStyle = MaterialTheme.typography.bodyLarge
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { isSearching = false; searchQuery = "" }) {
+                            Icon(Icons.Default.ArrowBack, "Back")
+                        }
+                    },
+                    actions = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, "Clear")
+                            }
+                        }
+                    }
+                )
             } else {
                 TopAppBar(
                     title = {
@@ -118,6 +172,13 @@ fun PlaylistDetailScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
+                    },
+                    actions = {
+                        if (songs.isNotEmpty()) {
+                            IconButton(onClick = { isSearching = true }) {
+                                Icon(Icons.Default.Search, contentDescription = "Search")
+                            }
+                        }
                     }
                 )
             }
@@ -130,18 +191,24 @@ fun PlaylistDetailScreen(
             top    = padding.calculateTopPadding(),
             bottom = padding.calculateBottomPadding() + bottomInset
         )
-        if (songs.isEmpty()) {
+        if (filteredSongs.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.MusicNote, null, Modifier.size(56.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
                     Spacer(Modifier.height(8.dp))
-                    Text("No songs in this playlist",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Add songs via the ⋮ menu in the library",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                    if (searchQuery.isNotEmpty()) {
+                        Text("No songs match your search",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Text("No songs in this playlist",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Add songs via the ⋮ menu in the library",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                    }
                 }
             }
         } else {
@@ -158,7 +225,7 @@ fun PlaylistDetailScreen(
             // auto-scrolls so the user can keep marking songs beyond the
             // visible viewport; songs scrolling under a stationary finger are
             // toggled too, so none are missed.
-            val currentSongs     by rememberUpdatedState(songs)
+            val currentSongs     by rememberUpdatedState(filteredSongs)
             val toggleSelectCb   by rememberUpdatedState { id: String -> viewModel.togglePlaylistSelect(id) }
             var dragSelectActive by remember { mutableStateOf(false) }
             var lastDragIndex    by remember { mutableStateOf(-1) }
@@ -245,7 +312,7 @@ fun PlaylistDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick  = { viewModel.playSongList(songs, 0) },
+                            onClick  = { viewModel.playSongList(filteredSongs, 0) },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
                         ) {
@@ -256,7 +323,7 @@ fun PlaylistDetailScreen(
                         OutlinedButton(
                             onClick  = {
                                 viewModel.toggleShuffle()
-                                viewModel.playSongList(songs, 0)
+                                viewModel.playSongList(filteredSongs, 0)
                             },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
@@ -269,7 +336,7 @@ fun PlaylistDetailScreen(
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                 }
 
-                itemsIndexed(songs, key = { _, s -> s.id }) { index, song ->
+                itemsIndexed(filteredSongs, key = { _, s -> s.id }) { index, song ->
                     ReorderableItem(reorderableState, key = song.id) { isDragging ->
                         val isInQueue = queue.any { it.mediaId == song.id && it.mediaId != currentSong?.id }
                         
@@ -312,14 +379,20 @@ fun PlaylistDetailScreen(
                                 inSelection = inSelection,
                                 isDragging  = isDragging,
                                 dragHandleModifier = Modifier.draggableHandle(
-                                    enabled       = !inSelection,
+                                    enabled       = !inSelection && searchQuery.isEmpty(),
                                     onDragStarted = { viewModel.startDrag() },
                                     onDragStopped = { viewModel.endPlaylistDrag(playlistId) }
                                 ),
                                 elevation = elevation,
                                 onPlay    = {
                                     if (song.id != currentSong?.id) {
-                                        viewModel.playSongList(songs, index)
+                                        // Match the library behaviour: play the
+                                        // tapped song within the FULL playlist
+                                        // (not the search-filtered list), so
+                                        // next/previous navigates every song in
+                                        // the playlist even while searching.
+                                        val fullIndex = songs.indexOfFirst { it.id == song.id }
+                                        if (fullIndex >= 0) viewModel.playSongList(songs, fullIndex)
                                     }
                                     // Just play from the mini player — don't
                                     // open the big player. The mini player
