@@ -1,8 +1,5 @@
 package com.Music
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,7 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import androidx.media3.common.MediaItem
 import coil.compose.AsyncImage
 import com.Music.data.local.PlaylistEntity
@@ -678,23 +674,6 @@ private fun SongsTab(
             }
         }
     }
-}
-
-private fun shareSong(context: Context, song: SongEntity) {
-    val file = File(song.filePath)
-    if (!file.exists()) return
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-    context.startActivity(
-        Intent.createChooser(
-            Intent(Intent.ACTION_SEND).apply {
-                type = if (song.filePath.substringAfterLast(".").lowercase() in setOf("mp4", "mkv", "webm")) "video/*" else "audio/*"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_TITLE, song.title)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            },
-            "Share \"${song.title}\""
-        )
-    )
 }
 
 // ─── Song row ─────────────────────────────────────────────────────────────────

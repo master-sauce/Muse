@@ -4,6 +4,13 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.core.content.FileProvider
+import com.Music.data.local.SongEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 fun Long.toTimeString(): String {
     val s = this / 1000
@@ -61,5 +68,43 @@ private fun tryStart(context: Context, intent: Intent): Boolean {
         true
     } catch (_: Exception) {
         false
+    }
+}
+
+/**
+ * Share a single song. The on-disk file is named "<taskId>.<ext>", which is
+ * meaningless to whoever receives it, so the file is first copied into the
+ * share cache directory under a human-readable name "Artist - Title.ext"
+ * (same sanitization as [com.Music.data.MusicRepository.zipSongs]). The copy
+ * happens on [Dispatchers.IO]; any existing copy with the same name is
+ * overwritten so the latest audio is always shared.
+ */
+fun shareSong(context: Context, song: SongEntity) {
+    val appContext = context.applicationContext
+    CoroutineScope(Dispatchers.Main).launch {
+        val uri = withContext(Dispatchers.IO) {
+            val src = File(song.filePath)
+            if (!src.exists()) return@withContext null
+            val ext = src.extension.ifBlank { "mp3" }
+            val base = "${song.artist} - ${song.title}"
+                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
+                .trim()
+                .ifBlank { src.nameWithoutExtension }
+            val dir = File(appContext.cacheDir, "share").also { it.mkdirs() }
+            val dest = File(dir, "$base.$ext")
+            src.copyTo(dest, overwrite = true)
+            FileProvider.getUriForFile(appContext, "${appContext.packageName}.provider", dest)
+        } ?: return@launch
+        appContext.startActivity(
+            Intent.createChooser(
+                Intent(Intent.ACTION_SEND).apply {
+                    type = if (song.filePath.substringAfterLast(".").lowercase() in setOf("mp4", "mkv", "webm")) "video/*" else "audio/*"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TITLE, song.title)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                },
+                "Share \"${song.title}\""
+            ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        )
     }
 }
