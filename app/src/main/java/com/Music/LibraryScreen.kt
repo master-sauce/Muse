@@ -1371,9 +1371,19 @@ fun AddMusicSheet(
                     ) {
                         OutlinedTextField(
                             value         = urlText,
-                            onValueChange = { urlText = it },
+                            onValueChange = { newValue ->
+                                // Auto-insert a comma between directly
+                                // concatenated links (e.g. pasting one link
+                                // right after another) so the downloader can
+                                // tell the individual URLs apart. The regex
+                                // looks for "http://" / "https://" that comes
+                                // immediately after a non-separator character.
+                                urlText = newValue.replace(
+                                    Regex("(?<=[^\\s,])(?=https?://)"), ", "
+                                )
+                            },
                             modifier      = Modifier.fillMaxWidth(),
-                            placeholder   = { Text("Paste links (one per line or comma separated)") },
+                            placeholder   = { Text("Paste links (multiple links are supported)") },
                             minLines      = 3,
                             maxLines      = 10,
                             shape         = RoundedCornerShape(12.dp),
