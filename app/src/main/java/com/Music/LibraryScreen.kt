@@ -398,6 +398,7 @@ fun LibraryScreen(
                         playlists        = playlists,
                         onPlaylistClick  = { pl -> onNavigateToPlaylist(pl.id) },
                         onDeletePlaylist = { pl -> viewModel.deletePlaylist(pl) },
+                        onRenamePlaylist = { pl, newName -> viewModel.renamePlaylist(pl.id, newName) },
                         onCreatePlaylist = { showNewPlaylistDialog = true }
                     )
                 }
@@ -902,6 +903,7 @@ private fun PlaylistsTab(
     playlists: List<PlaylistWithSongs>,
     onPlaylistClick: (PlaylistEntity) -> Unit,
     onDeletePlaylist: (PlaylistEntity) -> Unit,
+    onRenamePlaylist: (PlaylistEntity, String) -> Unit,
     onCreatePlaylist: () -> Unit
 ) {
     if (playlists.isEmpty()) {
@@ -937,7 +939,8 @@ private fun PlaylistsTab(
             PlaylistItem(
                 pw,
                 onClick  = { onPlaylistClick(pw.playlist) },
-                onDelete = { onDeletePlaylist(pw.playlist) }
+                onDelete = { onDeletePlaylist(pw.playlist) },
+                onRename = { newName -> onRenamePlaylist(pw.playlist, newName) }
             )
         }
     }
@@ -948,9 +951,11 @@ private fun PlaylistsTab(
 private fun PlaylistItem(
     playlistWithSongs: PlaylistWithSongs,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onRename: (String) -> Unit
 ) {
     var showConfirm by remember { mutableStateOf(false) }
+    var showRename  by remember { mutableStateOf(false) }
     ListItem(
         modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = {}),
         headlineContent = {
@@ -975,11 +980,27 @@ private fun PlaylistItem(
             }
         },
         trailingContent = {
-            IconButton(onClick = { showConfirm = true }) {
-                Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { showRename = true }) {
+                    Icon(
+                        Icons.Default.Edit, "Rename playlist",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = { showConfirm = true }) {
+                    Icon(Icons.Default.Delete, "Delete playlist",
+                        tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
     )
+    if (showRename) {
+        RenamePlaylistDialog(
+            currentName = playlistWithSongs.playlist.name,
+            onConfirm   = { newName -> onRename(newName); showRename = false },
+            onDismiss   = { showRename = false }
+        )
+    }
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
@@ -1108,6 +1129,35 @@ fun NewPlaylistDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
                 onClick  = { if (name.isNotBlank()) onConfirm(name.trim()) },
                 enabled  = name.isNotBlank()
             ) { Text("Create") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+fun RenamePlaylistDialog(
+    currentName: String,
+    onConfirm: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf(currentName) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title   = { Text("Rename Playlist") },
+        text    = {
+            OutlinedTextField(
+                value         = name,
+                onValueChange = { name = it },
+                label         = { Text("Playlist name") },
+                singleLine    = true,
+                shape         = RoundedCornerShape(12.dp)
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled = name.isNotBlank() && name.trim() != currentName
+            ) { Text("Save") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
