@@ -57,15 +57,26 @@ fun LyricsScreen(viewModel: MainViewModel, onNavigateBack: () -> Unit) {
             HorizontalDivider(Modifier.padding(horizontal = 24.dp))
             Spacer(Modifier.height(8.dp))
 
-            when (val state = lyricsState) {
-                is LyricsState.Idle         -> LyricsPlaceholder("Play a song to see lyrics")
-                is LyricsState.Loading      -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
+            // The morphing PlayerOverlay pins a MiniPlayer bar on top of this
+            // screen when a song is loaded. Reserve matching bottom space so the
+            // lyrics aren't hidden behind it (same 84.dp inset LibraryScreen uses).
+            val miniPlayerInset = if (currentSong != null) 84.dp else 0.dp
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .padding(bottom = miniPlayerInset)
+            ) {
+                when (val state = lyricsState) {
+                    is LyricsState.Idle         -> LyricsPlaceholder("Play a song to see lyrics")
+                    is LyricsState.Loading      -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                    is LyricsState.NotFound     -> LyricsPlaceholder("No lyrics found for this song")
+                    is LyricsState.Instrumental -> LyricsPlaceholder("🎵  This track is instrumental")
+                    is LyricsState.Plain        -> PlainLyrics(state.text)
+                    is LyricsState.Synced       -> SyncedLyrics(state.lines, position)
                 }
-                is LyricsState.NotFound     -> LyricsPlaceholder("No lyrics found for this song")
-                is LyricsState.Instrumental -> LyricsPlaceholder("🎵  This track is instrumental")
-                is LyricsState.Plain        -> PlainLyrics(state.text)
-                is LyricsState.Synced       -> SyncedLyrics(state.lines, position)
             }
         }
     }
