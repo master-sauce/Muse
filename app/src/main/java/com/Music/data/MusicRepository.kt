@@ -11,6 +11,9 @@ import com.Music.data.remote.OdesliService
 import com.Music.downloader.DownloadManager
 import com.Music.downloader.PlaylistEntry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -149,6 +152,60 @@ class MusicRepository(
         val file = File(dir, "muse_library_$stamp.txt")
         file.writeText(links.joinToString("\n"))
         file
+    }
+
+    /**
+     * Resolve a single song to a canonical YouTube watch URL suitable for
+     * sharing as a link instead of the media file.
+     *
+     * Resolution rules:
+     *  - Local imports (`sourceUrl` not starting with "http") have no link → null.
+     *  - YouTube URLs (youtube.com / youtu.be / music.youtube.com) are returned
+     *    as-is so the recipient gets the exact page the song came from.
+     *  - Everything else (Spotify, Apple Music, …) is resolved through Odesli
+     *    (`api.song.link`) to its `youtube` platform link, mirroring what
+     *    [downloadAndSave] does at download time. If Odesli fails or has no
+     *    YouTube entry, null is returned so the caller can skip the song.
+     *
+     * Best-effort: any network/parse error returns null instead of throwing.
+     */
+    suspend fun resolveYouTubeLink(song: SongEntity): String? =
+        resolveYouTubeLink(song.sourceUrl)
+
+    /** Per-song variant of [resolveYouTubeLink] operating on a raw URL. */
+    suspend fun resolveYouTubeLink(sourceUrl: String): String? =
+        withContext(Dispatchers.IO) {
+            if (sourceUrl.isBlank() || !sourceUrl.startsWith("http")) return@withContext null
+            if (isYouTubeUrl(sourceUrl)) return@withContext sourceUrl
+            try {
+                val resp = odesliService.getLinks(sourceUrl)
+                resp.linksByPlatform["youtube"]?.url
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    /**
+     * Resolve a batch of songs to YouTube links in parallel. Songs that yield
+     * no link (local imports, Odesli miss) are silently dropped. Order is
+     * preserved for the ones that resolve. De-duplicated so a duplicate source
+     * URL doesn't appear twice in the shared text.
+     */
+    suspend fun resolveYouTubeLinks(songs: List<SongEntity>): List<String> =
+        coroutineScope {
+            val resolved = songs.map { async(Dispatchers.IO) { resolveYouTubeLink(it) } }.awaitAll()
+            resolved.filterNotNull().distinct()
+        }
+
+    private fun isYouTubeUrl(url: String): Boolean {
+        val host = try {
+            android.net.Uri.parse(url).host?.lowercase() ?: return false
+        } catch (_: Exception) {
+            return false
+        }
+        return host == "youtube.com" || host == "www.youtube.com" ||
+            host == "m.youtube.com" || host == "music.youtube.com" ||
+            host == "youtu.be"
     }
 
     /**

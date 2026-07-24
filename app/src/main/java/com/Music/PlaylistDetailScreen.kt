@@ -398,6 +398,7 @@ fun PlaylistDetailScreen(
                                 onAddToQueue = { viewModel.addToQueue(song) },
                                 onRemoveFromQueue = { viewModel.removeFromQueue(song.id) },
                                 onToggleSelect = { viewModel.togglePlaylistSelect(song.id) },
+                                onShareAsLink = { viewModel.shareSongAsLink(song) },
                                 onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
                             )
                         }
@@ -436,6 +437,7 @@ private fun PlaylistSongItem(
     onAddToQueue: () -> Unit,
     onRemoveFromQueue: () -> Unit,
     onToggleSelect: () -> Unit,
+    onShareAsLink: () -> Unit,
     onRemove: () -> Unit
 ) {
     val context = LocalContext.current
@@ -525,10 +527,17 @@ private fun PlaylistSongItem(
                                 )
                             }
                             DropdownMenuItem(
-                                text = { Text("Share") },
+                                text = { Text("Share file") },
                                 leadingIcon = { Icon(Icons.Default.Share, null) },
                                 onClick = { shareSong(context, song); showMenu = false }
                             )
+                            if (song.sourceUrl.startsWith("http")) {
+                                DropdownMenuItem(
+                                    text = { Text("Share YouTube link") },
+                                    leadingIcon = { Icon(Icons.Default.SmartDisplay, null) },
+                                    onClick = { onShareAsLink(); showMenu = false }
+                                )
+                            }
                             HorizontalDivider()
                             DropdownMenuItem(
                                 text = { Text("Remove from Playlist", color = MaterialTheme.colorScheme.error) },

@@ -71,6 +71,7 @@ fun LibraryScreen(
     val selectedIds     by viewModel.selectedIds.collectAsState()
     val inSelection     = selectedIds.isNotEmpty()
     val isZipping       by viewModel.isZipping.collectAsState()
+    val isResolvingLinks by viewModel.isResolvingLinks.collectAsState()
     val playlists       by viewModel.playlists.collectAsState()
     val queue           by viewModel.queue.collectAsState()
     val playlistFetch   by viewModel.playlistFetch.collectAsState()
@@ -84,6 +85,7 @@ fun LibraryScreen(
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
     var showConfirmDeleteSelected by remember { mutableStateOf(false) }
+    var showShareMethodDialog  by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var searchQuery by remember { mutableStateOf("") }
@@ -99,6 +101,7 @@ fun LibraryScreen(
     BackHandler(enabled = showNewPlaylistDialog) { showNewPlaylistDialog = false }
     BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
     BackHandler(enabled = showConfirmDeleteSelected) { showConfirmDeleteSelected = false }
+    BackHandler(enabled = showShareMethodDialog) { showShareMethodDialog = false }
     BackHandler(enabled = inSelection) { viewModel.clearSelection() }
     BackHandler(enabled = isSearching && selectedTab == 0) {
         isSearching = false
@@ -175,16 +178,16 @@ fun LibraryScreen(
                             Icon(Icons.Default.PlaylistAdd, "Add selected to playlist")
                         }
                         IconButton(
-                            onClick = { viewModel.shareSelectedAsZip() },
-                            enabled = !isZipping
+                            onClick = { showShareMethodDialog = true },
+                            enabled = !isZipping && !isResolvingLinks
                         ) {
-                            if (isZipping) {
+                            if (isZipping || isResolvingLinks) {
                                 CircularProgressIndicator(
                                     Modifier.size(20.dp),
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Icon(Icons.Default.Share, "Share selected as ZIP")
+                                Icon(Icons.Default.Share, "Share selected")
                             }
                         }
                         IconButton(onClick = { viewModel.selectAll() }) {
@@ -375,6 +378,7 @@ fun LibraryScreen(
                         onLongPress     = { id -> viewModel.toggleSelect(id) },
                         onToggleSelect  = { id -> viewModel.toggleSelect(id) },
                         onDelete        = { song -> viewModel.deleteSong(song) },
+                        onShareAsLink   = { song -> viewModel.shareSongAsLink(song) },
                         onAddToPlaylist = { songId, plId -> viewModel.addSongToPlaylist(plId, songId) },
                         onStartDrag     = { viewModel.startDrag() },
                         onMove          = { from, to -> viewModel.moveSong(from, to) },
@@ -480,6 +484,70 @@ fun LibraryScreen(
                 }
             )
         }
+
+        if (showShareMethodDialog) {
+            AlertDialog(
+                onDismissRequest = { showShareMethodDialog = false },
+                title   = { Text("Share selected") },
+                text    = {
+                    Column {
+                        Text(
+                            "Choose how to share the ${selectedIds.size} selected " +
+                            "song${if (selectedIds.size == 1) "" else "s"}."
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        // Files (ZIP) — bundles the media files.
+                        ListItem(
+                            modifier = Modifier.clickable {
+                                showShareMethodDialog = false
+                                viewModel.shareSelectedAsZip()
+                            },
+                            headlineContent = { Text("Files (ZIP)") },
+                            supportingContent = {
+                                Text("Bundle the song files into a .zip archive")
+                            },
+                            leadingContent = { Icon(Icons.Default.Share, null) }
+                        )
+                        HorizontalDivider()
+                        // YouTube links — share the source URLs as text.
+                        ListItem(
+                            modifier = Modifier.clickable {
+                                showShareMethodDialog = false
+                                viewModel.shareSelectedAsLinks()
+                            },
+                            headlineContent = { Text("YouTube links") },
+                            supportingContent = {
+                                Text("Share the source links as text (one per line)")
+                            },
+                            leadingContent = { Icon(Icons.Default.SmartDisplay, null) }
+                        )
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showShareMethodDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
+
+        // Indeterminate progress indicator while YouTube links are being
+        // resolved (Odesli round-trips for Spotify/Apple sources). Dismissed
+        // automatically when isResolvingLinks flips back to false.
+        if (isResolvingLinks) {
+            AlertDialog(
+                onDismissRequest = {},
+                title   = { Text("Resolving links…") },
+                text    = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(16.dp))
+                        Text("Looking up YouTube links for the selected songs")
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {}
+            )
+        }
     }
 }
 
@@ -502,6 +570,7 @@ private fun SongsTab(
     onLongPress: (String) -> Unit,
     onToggleSelect: (String) -> Unit,
     onDelete: (SongEntity) -> Unit,
+    onShareAsLink: (SongEntity) -> Unit,
     onAddToPlaylist: (songId: String, playlistId: Long) -> Unit,
     onStartDrag: () -> Unit,
     onMove: (Int, Int) -> Unit,
@@ -669,6 +738,7 @@ private fun SongsTab(
                         onToggleSelect     = { onToggleSelect(song.id) },
                         onDelete           = { onDelete(song) },
                         onShare            = { shareSong(context, song) },
+                        onShareAsLink      = { onShareAsLink(song) },
                         onAddToPlaylist    = { plId -> onAddToPlaylist(song.id, plId) }
                     )
                 }
@@ -699,6 +769,7 @@ fun SongListItem(
     onToggleSelect: () -> Unit,
     onDelete: () -> Unit,
     onShare: () -> Unit,
+    onShareAsLink: () -> Unit,
     onAddToPlaylist: (Long) -> Unit
 ) {
     var showMenu          by remember { mutableStateOf(false) }
@@ -837,10 +908,17 @@ fun SongListItem(
                                 onClick     = { showMenu = false; showAddToPlaylist = true }
                             )
                             DropdownMenuItem(
-                                text        = { Text("Share") },
+                                text        = { Text("Share file") },
                                 leadingIcon = { Icon(Icons.Default.Share, null) },
                                 onClick     = { showMenu = false; onShare() }
                             )
+                            if (song.sourceUrl.startsWith("http")) {
+                                DropdownMenuItem(
+                                    text        = { Text("Share YouTube link") },
+                                    leadingIcon = { Icon(Icons.Default.SmartDisplay, null) },
+                                    onClick     = { showMenu = false; onShareAsLink() }
+                                )
+                            }
                             HorizontalDivider()
                             DropdownMenuItem(
                                 text        = { Text("Delete", color = MaterialTheme.colorScheme.error) },
