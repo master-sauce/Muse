@@ -22,6 +22,21 @@ data class PlaylistEntry(
     val index: Int
 )
 
+/**
+ * A single YouTube search result.
+ *
+ * [url] is a canonical `https://www.youtube.com/watch?v=<id>` link, ready to be
+ * pasted into the Add-Music URL field or shared. [duration] is in seconds
+ * (0 when yt-dlp couldn't determine it for a flat result).
+ */
+data class SearchResult(
+    val url: String,
+    val title: String,
+    val uploader: String,
+    val thumbnailUrl: String?,
+    val duration: Long
+)
+
 class DownloadManager(private val context: Context) {
 
     suspend fun downloadSong(
@@ -147,6 +162,60 @@ class DownloadManager(private val context: Context) {
         if (result.isEmpty()) throw Exception("No downloadable videos found in playlist")
         result
     }
+
+    /**
+     * Search YouTube for [query] and return up to [limit] flat results (no
+     * media, no full metadata fetch) using yt-dlp's `ytsearch{N}:<query>`
+     * pseudo-URL together with `--flat-playlist --dump-single-json`.
+     *
+     * Each result carries a canonical `https://www.youtube.com/watch?v=<id>`
+     * link plus the lightweight fields (title, uploader, thumbnail, duration)
+     * that the flat extractor exposes — enough to render a result row and to
+     * let the user copy the link into the Add-Music URL field.
+     *
+     * Throws on network/yt-dlp failure; the caller surfaces the message.
+     */
+    suspend fun searchYouTube(query: String, limit: Int = 20): List<SearchResult> =
+        withContext(Dispatchers.IO) {
+            val trimmed = query.trim()
+            if (trimmed.isEmpty()) return@withContext emptyList()
+
+            val request = YoutubeDLRequest("ytsearch$limit:$trimmed")
+            request.addOption("--flat-playlist")
+            request.addOption("--dump-single-json")
+            request.addOption("--no-warnings")
+            request.addOption("--ignore-errors")
+
+            val response = YoutubeDL.getInstance().execute(request, null, null)
+
+            val root = JSONObject(response.out)
+            val entriesArray = root.optJSONArray("entries")
+                ?: return@withContext emptyList()
+
+            val out = mutableListOf<SearchResult>()
+            for (i in 0 until entriesArray.length()) {
+                val entry = entriesArray.optJSONObject(i) ?: continue
+                val id = entry.optString("id")
+                if (id.isBlank()) continue
+                val title = entry.optString("title").ifBlank { "Unknown Title" }
+                val uploader = entry.optString("uploader")
+                    .ifBlank { entry.optString("channel") }
+                    .ifBlank { entry.optString("uploader_id") }
+                    .ifBlank { "Unknown" }
+                val thumb = entry.optString("thumbnail").ifBlank { null }
+                val duration = entry.optLong("duration", 0L)
+                out.add(
+                    SearchResult(
+                        url = "https://www.youtube.com/watch?v=$id",
+                        title = title,
+                        uploader = uploader,
+                        thumbnailUrl = thumb,
+                        duration = duration
+                    )
+                )
+            }
+            out
+        }
 
     /**
      * Best-effort cancellation of a running download identified by [processId].

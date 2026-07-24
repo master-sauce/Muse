@@ -88,9 +88,10 @@ fun MusicApp() {
                 popExitTransition  = { fadeOut(tween(120)) }
             ) {
                 LibraryScreen(
-                    viewModel            = viewModel,
-                    onNavigateToPlayer   = { playerExpanded = true },
-                    onNavigateToPlaylist = { id -> navController.navigate(Screen.PlaylistDetail.route(id)) }
+                    viewModel                 = viewModel,
+                    onNavigateToPlayer        = { playerExpanded = true },
+                    onNavigateToPlaylist      = { id -> navController.navigate(Screen.PlaylistDetail.route(id)) },
+                    onNavigateToYouTubeSearch = { navController.navigate(Screen.YouTubeSearch.route) }
                 )
             }
 
@@ -120,6 +121,30 @@ fun MusicApp() {
                         // dismissing lyrics returns to the full player.
                         playerExpanded = true
                     }
+                )
+            }
+
+            composable(
+                route     = Screen.YouTubeSearch.route,
+                enterTransition = {
+                    slideInVertically(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness    = Spring.StiffnessMediumLow
+                        )
+                    ) { it } + fadeIn(tween(0))
+                },
+                exitTransition     = { fadeOut(tween(120)) },
+                popEnterTransition = { fadeIn(tween(0)) },
+                popExitTransition  = {
+                    slideOutVertically(
+                        animationSpec = tween(220, easing = FastOutLinearInEasing)
+                    ) { it } + fadeOut(tween(160))
+                }
+            ) {
+                YouTubeSearchScreen(
+                    viewModel = viewModel,
+                    onBack    = { navController.popBackStack() }
                 )
             }
 

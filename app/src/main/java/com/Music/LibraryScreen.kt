@@ -60,7 +60,8 @@ import java.io.File
 fun LibraryScreen(
     viewModel: MainViewModel,
     onNavigateToPlayer: () -> Unit,
-    onNavigateToPlaylist: (Long) -> Unit
+    onNavigateToPlaylist: (Long) -> Unit,
+    onNavigateToYouTubeSearch: () -> Unit
 ) {
     val songs           by viewModel.songs.collectAsState()
     val currentSong     by viewModel.currentSong.collectAsState()
@@ -86,6 +87,7 @@ fun LibraryScreen(
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
     var showConfirmDeleteSelected by remember { mutableStateOf(false) }
     var showShareMethodDialog  by remember { mutableStateOf(false) }
+    var showYouTubeChooserDialog by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var searchQuery by remember { mutableStateOf("") }
@@ -102,6 +104,7 @@ fun LibraryScreen(
     BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
     BackHandler(enabled = showConfirmDeleteSelected) { showConfirmDeleteSelected = false }
     BackHandler(enabled = showShareMethodDialog) { showShareMethodDialog = false }
+    BackHandler(enabled = showYouTubeChooserDialog) { showYouTubeChooserDialog = false }
     BackHandler(enabled = inSelection) { viewModel.clearSelection() }
     BackHandler(enabled = isSearching && selectedTab == 0) {
         isSearching = false
@@ -243,7 +246,7 @@ fun LibraryScreen(
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = { openYouTube(context) }) {
+                        IconButton(onClick = { showYouTubeChooserDialog = true }) {
                             Icon(
                                 Icons.Default.SmartDisplay,
                                 contentDescription = "Open YouTube",
@@ -526,6 +529,46 @@ fun LibraryScreen(
                 confirmButton = {},
                 dismissButton = {
                     TextButton(onClick = { showShareMethodDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
+
+        if (showYouTubeChooserDialog) {
+            AlertDialog(
+                onDismissRequest = { showYouTubeChooserDialog = false },
+                title   = { Text("YouTube") },
+                text    = {
+                    Column {
+                        // Open the YouTube app (or fall back to the browser).
+                        ListItem(
+                            modifier = Modifier.clickable {
+                                showYouTubeChooserDialog = false
+                                openYouTube(context)
+                            },
+                            headlineContent = { Text("Open YouTube app") },
+                            supportingContent = {
+                                Text("Launch the YouTube app (or browser)")
+                            },
+                            leadingContent = { Icon(Icons.Default.SmartDisplay, null) }
+                        )
+                        HorizontalDivider()
+                        // Search YouTube in-app and copy a link to paste via "+".
+                        ListItem(
+                            modifier = Modifier.clickable {
+                                showYouTubeChooserDialog = false
+                                onNavigateToYouTubeSearch()
+                            },
+                            headlineContent = { Text("Search YouTube") },
+                            supportingContent = {
+                                Text("Search a song, tap it to copy its link, then paste via +")
+                            },
+                            leadingContent = { Icon(Icons.Default.Search, null) }
+                        )
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showYouTubeChooserDialog = false }) { Text("Cancel") }
                 }
             )
         }

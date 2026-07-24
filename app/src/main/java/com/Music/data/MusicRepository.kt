@@ -10,6 +10,7 @@ import com.Music.data.local.*
 import com.Music.data.remote.OdesliService
 import com.Music.downloader.DownloadManager
 import com.Music.downloader.PlaylistEntry
+import com.Music.downloader.SearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -99,6 +100,10 @@ class MusicRepository(
     /** Fetch the list of entries in a YouTube playlist (no media downloaded). */
     suspend fun fetchPlaylistEntries(playlistUrl: String): List<PlaylistEntry> =
         downloadManager.fetchPlaylistEntries(playlistUrl)
+
+    /** Search YouTube for [query] and return flat results (no media downloaded). */
+    suspend fun searchYouTube(query: String): List<SearchResult> =
+        downloadManager.searchYouTube(query)
 
     /**
      * Write the fetched playlist entries to a plain-text file, one URL per line,

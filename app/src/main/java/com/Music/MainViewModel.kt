@@ -138,6 +138,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isResolvingLinks = MutableStateFlow(false)
     val isResolvingLinks: StateFlow<Boolean> = _isResolvingLinks.asStateFlow()
 
+    /**
+     * State for the in-app YouTube search screen (the "Search YouTube" entry
+     * point behind the top-bar YouTube button). Holds the current query,
+     * whether a search is in flight, the result list, and any error message.
+     */
+    data class YouTubeSearchState(
+        val isLoading: Boolean = false,
+        val query: String = "",
+        val results: List<com.Music.downloader.SearchResult> = emptyList(),
+        val error: String? = null
+    )
+
+    private val _youtubeSearch = MutableStateFlow(YouTubeSearchState())
+    val youtubeSearch: StateFlow<YouTubeSearchState> = _youtubeSearch.asStateFlow()
+    private var youtubeSearchJob: Job? = null
+
     private val _playlists = MutableStateFlow<List<PlaylistWithSongs>>(emptyList())
     val playlists: StateFlow<List<PlaylistWithSongs>> = _playlists.asStateFlow()
 
@@ -397,6 +413,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun cancelPlaylistDownload() = DownloadState.cancelPlaylistDownload()
     fun exportLibraryLinks() = DownloadState.exportLibraryLinks()
     fun importLinksFile(uri: Uri) = DownloadState.importLinksFile(uri)
+
+    // ── In-app YouTube search ───────────────────────────────────────────────
+    // Lives here (not in DownloadState) because it's a UI-driven, short-lived
+    // lookup — nothing to keep running across Activity death. A previous
+    // in-flight search is cancelled before a new one starts so the results
+    // always match the latest query.
+
+    /**
+     * Run a YouTube search for [query] and publish the results to
+     * [youtubeSearch]. Cancels any prior search first. Errors are surfaced
+     * through the state's `error` field (the screen renders it inline) rather
+     * than as a toast, since the search screen is the active context.
+     */
+    fun searchYouTube(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            clearYouTubeSearch()
+            return
+        }
+        youtubeSearchJob?.cancel()
+        youtubeSearchJob = viewModelScope.launch {
+            _youtubeSearch.value = YouTubeSearchState(isLoading = true, query = trimmed)
+            try {
+                val results = repository.searchYouTube(trimmed)
+                _youtubeSearch.value = YouTubeSearchState(
+                    isLoading = false, query = trimmed, results = results
+                )
+            } catch (e: Exception) {
+                _youtubeSearch.value = YouTubeSearchState(
+                    isLoading = false, query = trimmed,
+                    error = e.localizedMessage ?: "Search failed"
+                )
+            }
+        }
+    }
+
+    /** Reset the search screen to its empty state (and cancel any in-flight job). */
+    fun clearYouTubeSearch() {
+        youtubeSearchJob?.cancel()
+        _youtubeSearch.value = YouTubeSearchState()
+    }
 
     fun playSong(song: SongEntity) {
         manualQueueIds.clear()
