@@ -134,10 +134,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isZipping = MutableStateFlow(false)
     val isZipping: StateFlow<Boolean> = _isZipping.asStateFlow()
 
-    /** True while YouTube links are being resolved for link-sharing. */
-    private val _isResolvingLinks = MutableStateFlow(false)
-    val isResolvingLinks: StateFlow<Boolean> = _isResolvingLinks.asStateFlow()
-
     /**
      * State for the in-app YouTube search screen (the "Search YouTube" entry
      * point behind the top-bar YouTube button). Holds the current query,
@@ -861,77 +857,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Share a single song as a YouTube link instead of its media file. YouTube
-     * URLs are shared verbatim; Spotify/Apple/… are resolved to YouTube via
-     * Odesli (see [com.Music.data.MusicRepository.resolveYouTubeLink]). Songs
-     * with no resolvable link (local imports) surface an error toast and share
-     * nothing. Progress is reported via [isResolvingLinks].
+     * Share a single song as its source link (the URL originally pasted via the
+     * "+" Add-Music button, which is stored verbatim in `song.sourceUrl`). No
+     * resolution step and no network — the stored link is shared as-is, so this
+     * works for YouTube, Spotify, Apple, or any other http(s) source the song
+     * was imported from. Songs with no http(s) source (local file/folder
+     * imports) surface an error toast and share nothing.
      */
     fun shareSongAsLink(song: SongEntity) {
-        if (_isResolvingLinks.value) return
+        val link = song.sourceUrl.trim()
+        if (!link.startsWith("http")) {
+            viewModelScope.launch { _errorEvents.emit("This song has no link to share") }
+            return
+        }
         viewModelScope.launch {
-            _isResolvingLinks.value = true
-            try {
-                val link = repository.resolveYouTubeLink(song)
-                if (link == null) {
-                    _errorEvents.emit("This song has no YouTube link to share")
-                    return@launch
-                }
-                _shareIntents.emit(
-                    Intent.createChooser(
-                        Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, link)
-                            putExtra(Intent.EXTRA_TITLE, song.title)
-                        },
-                        "Share \"${song.title}\" as link"
-                    )
+            _shareIntents.emit(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, link)
+                        putExtra(Intent.EXTRA_TITLE, song.title)
+                    },
+                    "Share \"${song.title}\" as link"
                 )
-            } catch (e: Exception) {
-                _errorEvents.emit("Failed to resolve link: ${e.localizedMessage}")
-            } finally {
-                _isResolvingLinks.value = false
-            }
+            )
         }
     }
 
     /**
-     * Share every currently selected song as a list of YouTube links (one per
-     * line) instead of a zip of files. Each song is resolved in parallel;
-     * songs that resolve to nothing are silently dropped. If no selected
-     * song yields a link, an error toast is shown. Progress is reported via
-     * [isResolvingLinks]; the selection is cleared once the links are shared.
+     * Share every currently selected song as a list of its source links (one
+     * per line) instead of a zip of files. Each song's stored `sourceUrl` is
+     * shared verbatim — no resolution, no network. Songs whose `sourceUrl` is
+     * not an http(s) link (local imports) are silently dropped. If no selected
+     * song has a link, an error toast is shown. The selection is cleared once
+     * the links are shared.
      */
     fun shareSelectedAsLinks() {
         val ids = _selectedIds.value
         if (ids.isEmpty()) return
-        if (_isResolvingLinks.value) return
         viewModelScope.launch {
-            _isResolvingLinks.value = true
-            try {
-                val songs = _songs.value.filter { it.id in ids }
-                val links = repository.resolveYouTubeLinks(songs)
-                if (links.isEmpty()) {
-                    _errorEvents.emit("None of the selected songs have a YouTube link to share")
-                    return@launch
-                }
-                val text = links.joinToString("\n")
-                _shareIntents.emit(
-                    Intent.createChooser(
-                        Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, text)
-                            putExtra(Intent.EXTRA_TITLE, "Muse links")
-                        },
-                        "Share ${links.size} YouTube link${if (links.size == 1) "" else "s"}"
-                    )
-                )
-                clearSelection()
-            } catch (e: Exception) {
-                _errorEvents.emit("Failed to resolve links: ${e.localizedMessage}")
-            } finally {
-                _isResolvingLinks.value = false
+            val links = _songs.value
+                .filter { it.id in ids }
+                .map { it.sourceUrl.trim() }
+                .filter { it.startsWith("http") }
+                .distinct()
+            if (links.isEmpty()) {
+                _errorEvents.emit("None of the selected songs have a link to share")
+                return@launch
             }
+            val text = links.joinToString("\n")
+            _shareIntents.emit(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                        putExtra(Intent.EXTRA_TITLE, "Muse links")
+                    },
+                    "Share ${links.size} link${if (links.size == 1) "" else "s"}"
+                )
+            )
+            clearSelection()
         }
     }
 

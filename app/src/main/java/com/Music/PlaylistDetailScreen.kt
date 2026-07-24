@@ -533,8 +533,8 @@ private fun PlaylistSongItem(
                             )
                             if (song.sourceUrl.startsWith("http")) {
                                 DropdownMenuItem(
-                                    text = { Text("Share YouTube link") },
-                                    leadingIcon = { Icon(Icons.Default.SmartDisplay, null) },
+                                    text = { Text("Share link") },
+                                    leadingIcon = { Icon(Icons.Default.Link, null) },
                                     onClick = { onShareAsLink(); showMenu = false }
                                 )
                             }

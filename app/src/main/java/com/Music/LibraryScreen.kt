@@ -72,7 +72,6 @@ fun LibraryScreen(
     val selectedIds     by viewModel.selectedIds.collectAsState()
     val inSelection     = selectedIds.isNotEmpty()
     val isZipping       by viewModel.isZipping.collectAsState()
-    val isResolvingLinks by viewModel.isResolvingLinks.collectAsState()
     val playlists       by viewModel.playlists.collectAsState()
     val queue           by viewModel.queue.collectAsState()
     val playlistFetch   by viewModel.playlistFetch.collectAsState()
@@ -182,9 +181,9 @@ fun LibraryScreen(
                         }
                         IconButton(
                             onClick = { showShareMethodDialog = true },
-                            enabled = !isZipping && !isResolvingLinks
+                            enabled = !isZipping
                         ) {
-                            if (isZipping || isResolvingLinks) {
+                            if (isZipping) {
                                 CircularProgressIndicator(
                                     Modifier.size(20.dp),
                                     strokeWidth = 2.dp
@@ -512,17 +511,18 @@ fun LibraryScreen(
                             leadingContent = { Icon(Icons.Default.Share, null) }
                         )
                         HorizontalDivider()
-                        // YouTube links — share the source URLs as text.
+                        // Links — share the source URLs as text (YouTube links
+                        // verbatim; other sources resolved via Odesli / shared as-is).
                         ListItem(
                             modifier = Modifier.clickable {
                                 showShareMethodDialog = false
                                 viewModel.shareSelectedAsLinks()
                             },
-                            headlineContent = { Text("YouTube links") },
+                            headlineContent = { Text("Links") },
                             supportingContent = {
-                                Text("Share the source links as text (one per line)")
+                                Text("Share the song links as text (one per line)")
                             },
-                            leadingContent = { Icon(Icons.Default.SmartDisplay, null) }
+                            leadingContent = { Icon(Icons.Default.Link, null) }
                         )
                     }
                 },
@@ -573,24 +573,6 @@ fun LibraryScreen(
             )
         }
 
-        // Indeterminate progress indicator while YouTube links are being
-        // resolved (Odesli round-trips for Spotify/Apple sources). Dismissed
-        // automatically when isResolvingLinks flips back to false.
-        if (isResolvingLinks) {
-            AlertDialog(
-                onDismissRequest = {},
-                title   = { Text("Resolving links…") },
-                text    = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(16.dp))
-                        Text("Looking up YouTube links for the selected songs")
-                    }
-                },
-                confirmButton = {},
-                dismissButton = {}
-            )
-        }
     }
 }
 
@@ -957,8 +939,8 @@ fun SongListItem(
                             )
                             if (song.sourceUrl.startsWith("http")) {
                                 DropdownMenuItem(
-                                    text        = { Text("Share YouTube link") },
-                                    leadingIcon = { Icon(Icons.Default.SmartDisplay, null) },
+                                    text        = { Text("Share link") },
+                                    leadingIcon = { Icon(Icons.Default.Link, null) },
                                     onClick     = { showMenu = false; onShareAsLink() }
                                 )
                             }

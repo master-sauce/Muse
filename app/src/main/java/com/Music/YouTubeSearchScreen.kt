@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,20 +29,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.Music.downloader.SearchResult
+import kotlinx.coroutines.delay
 
 /**
  * An in-app YouTube search screen, reachable from the Library top-bar
- * YouTube chooser ("Search YouTube"). Lets the user type a query, see flat
- * results (thumbnail / title / uploader / duration), and tap any result to
- * **copy its `watch?v=<id>` link** to the system clipboard — after which they
- * can paste it into the Add-Music URL field via the "+" button.
+ * YouTube chooser ("Search YouTube"). Lets the user type a query and see flat
+ * results (thumbnail / title / uploader / duration) render automatically as
+ * they type (debounced ~500 ms). Tapping any result **copies its
+ * `watch?v=<id>` link** to the system clipboard, after which they can paste it
+ * into the Add-Music URL field via the "+" button.
  *
- * The actual search runs through [MainViewModel.searchYouTube], which delegates
- * to yt-dlp's `ytsearch` extractor (no API key, handles YouTube's anti-bot).
+ * Search runs through [MainViewModel.searchYouTube], which delegates to
+ * yt-dlp's `ytsearch` extractor (YouTube) — no API key, handles YouTube's
+ * anti-bot.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,16 +70,21 @@ fun YouTubeSearchScreen(
 
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
-    fun runSearch() {
-        val q = query.trim()
-        if (q.isEmpty()) return
-        viewModel.searchYouTube(q)
+    // Auto-search with debounce: fire ~500ms after the user stops typing, so
+    // they no longer need to press the Search IME action. Re-launching on every
+    // keystroke cancels the previous delay, giving natural debounce behavior.
+    LaunchedEffect(query) {
+        if (query.isBlank()) {
+            viewModel.clearYouTubeSearch()
+            return@LaunchedEffect
+        }
+        delay(500)
+        viewModel.searchYouTube(query.trim())
     }
 
     fun copyLink(result: SearchResult) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("YouTube link", result.url))
-        Toast.makeText(context, "Link copied — paste it in Add Music", Toast.LENGTH_SHORT).show()
     }
 
     Scaffold(
@@ -93,7 +104,7 @@ fun YouTubeSearchScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ── Search bar ────────────────────────────────────────────────
+            // ── Search bar: pill-shaped filled field ──────────────────────
             OutlinedTextField(
                 value         = query,
                 onValueChange = { query = it },
@@ -103,6 +114,13 @@ fun YouTubeSearchScreen(
                     .focusRequester(focusRequester),
                 placeholder   = { Text("Search for a song or artist") },
                 singleLine    = true,
+                shape         = RoundedCornerShape(28.dp),
+                colors        = TextFieldDefaults.colors(
+                    focusedContainerColor   = MaterialTheme.colorScheme.surfaceVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedIndicatorColor   = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
                 leadingIcon   = { Icon(Icons.Default.Search, null) },
                 trailingIcon  = {
                     if (query.isNotEmpty()) {
@@ -113,10 +131,10 @@ fun YouTubeSearchScreen(
                     }
                 },
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                    onSearch = { runSearch() }
+                    onSearch = { viewModel.searchYouTube(query.trim()) }
                 ),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                    imeAction = ImeAction.Search
                 )
             )
 
@@ -128,46 +146,99 @@ fun YouTubeSearchScreen(
             ) {
                 when {
                     state.isLoading -> {
-                        CircularProgressIndicator(
-                            Modifier
-                                .align(Alignment.Center)
-                                .size(28.dp),
-                            strokeWidth = 2.dp
-                        )
+                        Column(
+                            Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            CircularProgressIndicator(
+                                Modifier.size(36.dp),
+                                strokeWidth = 3.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "Searching…",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                     state.error != null -> {
-                        Text(
-                            state.error!!,
+                        Column(
                             Modifier
                                 .align(Alignment.Center)
                                 .padding(24.dp),
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.LibraryMusic, null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                state.error!!,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                     state.results.isEmpty() && state.query.isNotEmpty() -> {
-                        Text(
-                            "No results for \"${state.query}\"",
+                        Column(
                             Modifier
                                 .align(Alignment.Center)
                                 .padding(24.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.LibraryMusic, null,
+                                modifier = Modifier.size(56.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                "No results for \"${state.query}\"",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyLarge,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                     state.results.isEmpty() -> {
-                        Text(
-                            "Type a song or artist name and press Search.\n" +
-                            "Tap a result to copy its YouTube link.",
+                        Column(
                             Modifier
                                 .align(Alignment.Center)
                                 .padding(24.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                Icons.Default.LibraryMusic, null,
+                                modifier = Modifier.size(72.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                "Search YouTube",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Type a song or artist — results load automatically.\n" +
+                                "Tap a result to copy its link, then paste via +",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                     else -> {
                         LazyColumn(
-                            contentPadding = PaddingValues(bottom = 16.dp)
+                            contentPadding = PaddingValues(
+                                start = 12.dp, end = 12.dp, top = 4.dp, bottom = 20.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(state.results, key = { it.url }) { result ->
                                 SearchResultRow(result) { copyLink(result) }
@@ -185,36 +256,25 @@ private fun SearchResultRow(
     result: SearchResult,
     onCopy: () -> Unit
 ) {
-    ListItem(
-        modifier = Modifier.clickable { onCopy() },
-        headlineContent = {
-            Text(
-                result.title,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.Medium
-            )
-        },
-        supportingContent = {
-            Text(
-                buildString {
-                    append(result.uploader)
-                    if (result.duration > 0) {
-                        val m = result.duration / 60
-                        val s = result.duration % 60
-                        append(" · %d:%02d".format(m, s))
-                    }
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        },
-        leadingContent = {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCopy() },
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Thumbnail (64dp, rounded).
             Box(
                 Modifier
-                    .size(56.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .size(64.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
@@ -226,15 +286,67 @@ private fun SearchResultRow(
                         contentScale       = ContentScale.Crop
                     )
                 } else {
-                    Icon(Icons.Default.Search, null)
+                    Icon(
+                        Icons.Default.LibraryMusic, null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-        },
-        trailingContent = {
-            IconButton(onClick = onCopy) {
-                Icon(Icons.Default.ContentCopy, "Copy link")
+
+            Spacer(Modifier.width(12.dp))
+
+            // Title + (uploader · duration chip).
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    result.title,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        result.uploader,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (result.duration > 0) {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                formatDuration(result.duration),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
             }
-        },
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-    )
+
+            Spacer(Modifier.width(4.dp))
+
+            // Copy action.
+            IconButton(onClick = onCopy) {
+                Icon(
+                    Icons.Default.ContentCopy, "Copy link",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+private fun formatDuration(seconds: Long): String {
+    val m = seconds / 60
+    val s = seconds % 60
+    return "%d:%02d".format(m, s)
 }
