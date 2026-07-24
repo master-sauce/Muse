@@ -28,9 +28,12 @@ import com.Music.downloader.PlaylistFetchState
 import com.Music.player.PlaybackService
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -433,13 +436,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _youtubeSearch.value = YouTubeSearchState(isLoading = true, query = trimmed)
             try {
                 val results = repository.searchYouTube(trimmed)
+                // Guard against a stale result landing after the user changed
+                // the query (or navigated away) — only commit if this job is
+                // still the active one.
+                if (!currentCoroutineContext().isActive) return@launch
                 _youtubeSearch.value = YouTubeSearchState(
                     isLoading = false, query = trimmed, results = results
                 )
+            } catch (e: CancellationException) {
+                // Debounce / clear cancels in-flight searches. This is normal
+                // and must propagate, NOT be surfaced as an error to the user.
+                throw e
             } catch (e: Exception) {
+                // Real failure (network / yt-dlp). Don't show the raw exception
+                // text — fall back to the empty-results state, which renders
+                // "No results for …" (or the initial empty state if the query
+                // has since been cleared).
                 _youtubeSearch.value = YouTubeSearchState(
-                    isLoading = false, query = trimmed,
-                    error = e.localizedMessage ?: "Search failed"
+                    isLoading = false, query = trimmed, results = emptyList()
                 )
             }
         }
