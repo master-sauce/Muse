@@ -504,25 +504,38 @@ fun LibraryScreen(
                                 showShareMethodDialog = false
                                 viewModel.shareSelectedAsZip()
                             },
-                            headlineContent = { Text("Files (ZIP)") },
-                            supportingContent = {
-                                Text("Bundle the song files into a .zip archive")
+                            headlineContent = {
+                                Text("Files (ZIP)",
+                                    color = MaterialTheme.colorScheme.primary)
                             },
-                            leadingContent = { Icon(Icons.Default.Share, null) }
+                            supportingContent = {
+                                Text("Bundle the song files into a .zip archive",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.Share, null,
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
                         )
                         HorizontalDivider()
-                        // Links — share the source URLs as text (YouTube links
-                        // verbatim; other sources resolved via Odesli / shared as-is).
+                        // Links — share the source URLs as text.
                         ListItem(
                             modifier = Modifier.clickable {
                                 showShareMethodDialog = false
                                 viewModel.shareSelectedAsLinks()
                             },
-                            headlineContent = { Text("Links") },
-                            supportingContent = {
-                                Text("Share the song links as text (one per line)")
+                            headlineContent = {
+                                Text("Links",
+                                    color = MaterialTheme.colorScheme.primary)
                             },
-                            leadingContent = { Icon(Icons.Default.Link, null) }
+                            supportingContent = {
+                                Text("Share the song links as text (one per line)",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.Link, null,
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
                         )
                     }
                 },
@@ -545,11 +558,18 @@ fun LibraryScreen(
                                 showYouTubeChooserDialog = false
                                 openYouTube(context)
                             },
-                            headlineContent = { Text("Open YouTube app") },
-                            supportingContent = {
-                                Text("Launch the YouTube app (or browser)")
+                            headlineContent = {
+                                Text("Open YouTube app",
+                                    color = MaterialTheme.colorScheme.primary)
                             },
-                            leadingContent = { Icon(Icons.Default.SmartDisplay, null) }
+                            supportingContent = {
+                                Text("Launch the YouTube app (or browser)",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.SmartDisplay, null,
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
                         )
                         HorizontalDivider()
                         // Search YouTube in-app and copy a link to paste via "+".
@@ -558,11 +578,18 @@ fun LibraryScreen(
                                 showYouTubeChooserDialog = false
                                 onNavigateToYouTubeSearch()
                             },
-                            headlineContent = { Text("Search YouTube") },
-                            supportingContent = {
-                                Text("Search a song, tap it to copy its link, then paste via +")
+                            headlineContent = {
+                                Text("Search YouTube",
+                                    color = MaterialTheme.colorScheme.primary)
                             },
-                            leadingContent = { Icon(Icons.Default.Search, null) }
+                            supportingContent = {
+                                Text("Search a song, tap it to copy its link, then paste via +",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.Search, null,
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
                         )
                     }
                 },

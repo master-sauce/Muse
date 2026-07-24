@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.Music.data.local.SongEntity
 import com.Music.downloader.SearchResult
 import kotlinx.coroutines.delay
 
@@ -48,6 +49,11 @@ import kotlinx.coroutines.delay
  * Search runs through [MainViewModel.searchYouTube], which delegates to
  * yt-dlp's `ytsearch` extractor (YouTube) — no API key, handles YouTube's
  * anti-bot.
+ *
+ * Uses cyan primary accents for icons and headings (rather than filling
+ * containers with primaryContainer), and reserves 84 dp at the bottom when
+ * a song is loaded so the morphing PlayerOverlay's mini bar doesn't overlap
+ * the results list.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,8 +63,14 @@ fun YouTubeSearchScreen(
 ) {
     val context = LocalContext.current
     val state by viewModel.youtubeSearch.collectAsState()
+    val currentSong by viewModel.currentSong.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+
+    // The morphing PlayerOverlay pins a MiniPlayer bar on top of this screen
+    // when a song is loaded. Reserve matching bottom space so the last results
+    // aren't hidden behind it (same 84.dp inset LibraryScreen uses).
+    val miniPlayerInset = if (currentSong != null) 84.dp else 0.dp
 
     // Clear any previous results whenever we leave the screen so a return
     // visit starts fresh.
@@ -85,6 +97,7 @@ fun YouTubeSearchScreen(
     fun copyLink(result: SearchResult) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("YouTube link", result.url))
+        Toast.makeText(context, "Link copied — paste it in Add Music", Toast.LENGTH_SHORT).show()
     }
 
     Scaffold(
@@ -102,9 +115,12 @@ fun YouTubeSearchScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(
+                    top    = padding.calculateTopPadding(),
+                    bottom = padding.calculateBottomPadding() + miniPlayerInset
+                )
         ) {
-            // ── Search bar: pill-shaped filled field ──────────────────────
+            // ── Search bar: pill-shaped field, primaryContainer accent ──────
             OutlinedTextField(
                 value         = query,
                 onValueChange = { query = it },
@@ -115,19 +131,23 @@ fun YouTubeSearchScreen(
                 placeholder   = { Text("Search for a song or artist") },
                 singleLine    = true,
                 shape         = RoundedCornerShape(28.dp),
-                colors        = TextFieldDefaults.colors(
-                    focusedContainerColor   = MaterialTheme.colorScheme.surfaceVariant,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    focusedIndicatorColor   = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
-                ),
-                leadingIcon   = { Icon(Icons.Default.Search, null) },
+                leadingIcon   = {
+                    Icon(
+                        Icons.Default.Search, null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
                 trailingIcon  = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = {
                             query = ""
                             viewModel.clearYouTubeSearch()
-                        }) { Icon(Icons.Default.Clear, "Clear") }
+                        }) {
+                            Icon(
+                                Icons.Default.Clear, "Clear",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 },
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(
@@ -194,7 +214,7 @@ fun YouTubeSearchScreen(
                             Icon(
                                 Icons.Default.LibraryMusic, null,
                                 modifier = Modifier.size(56.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(Modifier.height(12.dp))
                             Text(
@@ -213,15 +233,16 @@ fun YouTubeSearchScreen(
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Icon(
-                                Icons.Default.LibraryMusic, null,
+                                Icons.Default.Search, null,
                                 modifier = Modifier.size(72.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = MaterialTheme.colorScheme.primary
                             )
                             Spacer(Modifier.height(16.dp))
                             Text(
                                 "Search YouTube",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
@@ -270,7 +291,7 @@ private fun SearchResultRow(
             modifier = Modifier.padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Thumbnail (64dp, rounded).
+            // Thumbnail (64dp, rounded), neutral placeholder.
             Box(
                 Modifier
                     .size(64.dp)
@@ -288,7 +309,7 @@ private fun SearchResultRow(
                 } else {
                     Icon(
                         Icons.Default.LibraryMusic, null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -302,7 +323,8 @@ private fun SearchResultRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.SemiBold,
-                    style = MaterialTheme.typography.bodyLarge
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -318,12 +340,12 @@ private fun SearchResultRow(
                         Spacer(Modifier.width(8.dp))
                         Surface(
                             shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.secondaryContainer
+                            color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
                             Text(
                                 formatDuration(result.duration),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontWeight = FontWeight.Medium
                             )
