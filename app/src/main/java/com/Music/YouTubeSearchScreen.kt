@@ -97,7 +97,6 @@ fun YouTubeSearchScreen(
     fun copyLink(result: SearchResult) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("YouTube link", result.url))
-        Toast.makeText(context, "Link copied — paste it in Add Music", Toast.LENGTH_SHORT).show()
     }
 
     Scaffold(

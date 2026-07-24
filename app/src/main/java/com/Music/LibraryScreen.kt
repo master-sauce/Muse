@@ -490,6 +490,7 @@ fun LibraryScreen(
         if (showShareMethodDialog) {
             AlertDialog(
                 onDismissRequest = { showShareMethodDialog = false },
+                containerColor = MaterialTheme.colorScheme.background,
                 title   = { Text("Share selected") },
                 text    = {
                     Column {
@@ -549,6 +550,7 @@ fun LibraryScreen(
         if (showYouTubeChooserDialog) {
             AlertDialog(
                 onDismissRequest = { showYouTubeChooserDialog = false },
+                containerColor = MaterialTheme.colorScheme.background,
                 title   = { Text("YouTube") },
                 text    = {
                     Column {
