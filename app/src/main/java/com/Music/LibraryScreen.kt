@@ -251,72 +251,77 @@ fun LibraryScreen(
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = { showYouTubeChooserDialog = true }) {
-                            Icon(
-                                Icons.Default.SmartDisplay,
-                                contentDescription = "Open YouTube",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { showYouTubeChooserDialog = true }) {
+                                Icon(
+                                    Icons.Default.SmartDisplay,
+                                    contentDescription = "Open YouTube",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            // Sort menu — Newest / Oldest / Custom. Placed on
+                            // the left next to the YouTube button so it groups
+                            // with the other library-control actions, away from
+                            // the right-side Search / Add actions.
+                            if (selectedTab == 0 && songs.isNotEmpty()) {
+                                var showSortMenu by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = { showSortMenu = true }) {
+                                        Icon(Icons.Default.Sort, contentDescription = "Sort")
+                                    }
+                                    DropdownMenu(
+                                        expanded         = showSortMenu,
+                                        onDismissRequest = { showSortMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text        = { Text("Newest first") },
+                                            leadingIcon = { Icon(Icons.Default.ArrowDownward, null) },
+                                            trailingIcon = {
+                                                if (songSortMode == SongSortMode.NEWEST) {
+                                                    Icon(Icons.Default.Check, null,
+                                                        tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showSortMenu = false
+                                                viewModel.setSongSortMode(SongSortMode.NEWEST)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text        = { Text("Oldest first") },
+                                            leadingIcon = { Icon(Icons.Default.ArrowUpward, null) },
+                                            trailingIcon = {
+                                                if (songSortMode == SongSortMode.OLDEST) {
+                                                    Icon(Icons.Default.Check, null,
+                                                        tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showSortMenu = false
+                                                viewModel.setSongSortMode(SongSortMode.OLDEST)
+                                            }
+                                        )
+                                        DropdownMenuItem(
+                                            text        = { Text("Custom order") },
+                                            leadingIcon = { Icon(Icons.Default.DragHandle, null) },
+                                            trailingIcon = {
+                                                if (songSortMode == SongSortMode.CUSTOM) {
+                                                    Icon(Icons.Default.Check, null,
+                                                        tint = MaterialTheme.colorScheme.primary)
+                                                }
+                                            },
+                                            onClick = {
+                                                showSortMenu = false
+                                                viewModel.setSongSortMode(SongSortMode.CUSTOM)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     },
                     actions = {
                         if (selectedTab == 0 && songs.isNotEmpty()) {
-                            var showSortMenu by remember { mutableStateOf(false) }
-                            // Sort menu — Newest / Oldest / Custom. Drag-reorder
-                            // only works in Custom, so the menu doubles as the
-                            // way to re-enable dragging.
-                            Box {
-                                IconButton(onClick = { showSortMenu = true }) {
-                                    Icon(Icons.Default.Sort, contentDescription = "Sort")
-                                }
-                                DropdownMenu(
-                                    expanded         = showSortMenu,
-                                    onDismissRequest = { showSortMenu = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text        = { Text("Newest first") },
-                                        leadingIcon = { Icon(Icons.Default.ArrowDownward, null) },
-                                        trailingIcon = {
-                                            if (songSortMode == SongSortMode.NEWEST) {
-                                                Icon(Icons.Default.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
-                                            }
-                                        },
-                                        onClick = {
-                                            showSortMenu = false
-                                            viewModel.setSongSortMode(SongSortMode.NEWEST)
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text        = { Text("Oldest first") },
-                                        leadingIcon = { Icon(Icons.Default.ArrowUpward, null) },
-                                        trailingIcon = {
-                                            if (songSortMode == SongSortMode.OLDEST) {
-                                                Icon(Icons.Default.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
-                                            }
-                                        },
-                                        onClick = {
-                                            showSortMenu = false
-                                            viewModel.setSongSortMode(SongSortMode.OLDEST)
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text        = { Text("Custom order") },
-                                        leadingIcon = { Icon(Icons.Default.DragHandle, null) },
-                                        trailingIcon = {
-                                            if (songSortMode == SongSortMode.CUSTOM) {
-                                                Icon(Icons.Default.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
-                                            }
-                                        },
-                                        onClick = {
-                                            showSortMenu = false
-                                            viewModel.setSongSortMode(SongSortMode.CUSTOM)
-                                        }
-                                    )
-                                }
-                            }
                             IconButton(onClick = { isSearching = true }) {
                                 Icon(Icons.Default.Search, contentDescription = "Search")
                             }
