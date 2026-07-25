@@ -64,6 +64,7 @@ fun LibraryScreen(
     onNavigateToYouTubeSearch: () -> Unit
 ) {
     val songs           by viewModel.songs.collectAsState()
+    val songSortMode    by viewModel.songSortMode.collectAsState()
     val currentSong     by viewModel.currentSong.collectAsState()
     val isPlaying       by viewModel.isPlaying.collectAsState()
     val isDownloading   by viewModel.isDownloading.collectAsState()
@@ -255,6 +256,62 @@ fun LibraryScreen(
                     },
                     actions = {
                         if (selectedTab == 0 && songs.isNotEmpty()) {
+                            var showSortMenu by remember { mutableStateOf(false) }
+                            // Sort menu — Newest / Oldest / Custom. Drag-reorder
+                            // only works in Custom, so the menu doubles as the
+                            // way to re-enable dragging.
+                            Box {
+                                IconButton(onClick = { showSortMenu = true }) {
+                                    Icon(Icons.Default.Sort, contentDescription = "Sort")
+                                }
+                                DropdownMenu(
+                                    expanded         = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text        = { Text("Newest first") },
+                                        leadingIcon = { Icon(Icons.Default.ArrowDownward, null) },
+                                        trailingIcon = {
+                                            if (songSortMode == SongSortMode.NEWEST) {
+                                                Icon(Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showSortMenu = false
+                                            viewModel.setSongSortMode(SongSortMode.NEWEST)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text        = { Text("Oldest first") },
+                                        leadingIcon = { Icon(Icons.Default.ArrowUpward, null) },
+                                        trailingIcon = {
+                                            if (songSortMode == SongSortMode.OLDEST) {
+                                                Icon(Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showSortMenu = false
+                                            viewModel.setSongSortMode(SongSortMode.OLDEST)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text        = { Text("Custom order") },
+                                        leadingIcon = { Icon(Icons.Default.DragHandle, null) },
+                                        trailingIcon = {
+                                            if (songSortMode == SongSortMode.CUSTOM) {
+                                                Icon(Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showSortMenu = false
+                                            viewModel.setSongSortMode(SongSortMode.CUSTOM)
+                                        }
+                                    )
+                                }
+                            }
                             IconButton(onClick = { isSearching = true }) {
                                 Icon(Icons.Default.Search, contentDescription = "Search")
                             }
@@ -366,6 +423,7 @@ fun LibraryScreen(
                         inSelection     = inSelection,
                         playlists       = playlists.map { it.playlist },
                         queue           = queue,
+                        canReorder      = songSortMode == SongSortMode.CUSTOM,
                         onPlay          = { song ->
                             if (song.id != currentSong?.id) {
                                 viewModel.playSong(song)
@@ -617,6 +675,7 @@ private fun SongsTab(
     inSelection: Boolean,
     playlists: List<PlaylistEntity>,
     queue: List<MediaItem>,
+    canReorder: Boolean,
     onPlay: (SongEntity) -> Unit,
     onPlayNext: (SongEntity) -> Unit,
     onAddToQueue: (SongEntity) -> Unit,
@@ -776,7 +835,7 @@ private fun SongsTab(
                         inSelection        = inSelection,
                         isDragging         = isDragging,
                         dragHandleModifier = Modifier.draggableHandle(
-                            enabled       = !inSelection && !isFiltered,
+                            enabled       = canReorder && !inSelection && !isFiltered,
                             onDragStarted = { onStartDrag() },
                             onDragStopped = { onEndDrag() }
                         ),

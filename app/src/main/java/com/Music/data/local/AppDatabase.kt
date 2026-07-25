@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SongEntity::class, PlaylistEntity::class, PlaylistSongCrossRef::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,6 +37,20 @@ abstract class AppDatabase : RoomDatabase() {
                     )
                 """)
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_playlist_songs_songId ON playlist_songs(songId)")
+            }
+        }
+
+        /**
+         * Adds the `createdAt` column to `songs` so the Library can be sorted
+         * Newest / Oldest by add-time. Pre-existing rows get `createdAt = rowid`
+         * (a monotonically-increasing proxy for insertion order) so their
+         * relative add order survives the migration even though the wall-clock
+         * time wasn't recorded.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE songs ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE songs SET createdAt = rowid")
             }
         }
     }

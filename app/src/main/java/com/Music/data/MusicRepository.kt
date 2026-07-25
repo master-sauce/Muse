@@ -80,6 +80,10 @@ class MusicRepository(
 
         val file = downloadManager.downloadSong(finalUrl, taskId, processId) { p, _ -> onProgress(p) }
 
+        // Insert at the TOP of the user's custom order: bump every existing
+        // song's sortOrder up by 1, then place this one at position 0 so it
+        // shows first in CUSTOM mode. createdAt still drives Newest / Oldest.
+        songDao.shiftAllSortOrders()
         songDao.insertSong(SongEntity(
             id           = info?.id ?: System.currentTimeMillis().toString(),
             title        = info?.title ?: file.nameWithoutExtension,
@@ -88,7 +92,8 @@ class MusicRepository(
             duration     = info?.duration?.times(1000L) ?: 0L,
             thumbnailUrl = metaThumbnail ?: info?.thumbnail,
             sourceUrl    = url,
-            sortOrder    = Int.MAX_VALUE
+            sortOrder    = 0,
+            createdAt    = System.currentTimeMillis()
         ))
     }
 
@@ -285,6 +290,8 @@ class MusicRepository(
             context.contentResolver.openInputStream(uri)?.use { it.copyTo(destFile.outputStream()) }
                 ?: throw Exception("Cannot open file")
 
+            // Insert at the TOP of the user's custom order (see downloadAndSave).
+            songDao.shiftAllSortOrders()
             songDao.insertSong(SongEntity(
                 id           = "local_${destFile.name}",
                 title        = title,
@@ -293,7 +300,8 @@ class MusicRepository(
                 duration     = durMs,
                 thumbnailUrl = null,
                 sourceUrl    = uri.toString(),
-                sortOrder    = Int.MAX_VALUE
+                sortOrder    = 0,
+                createdAt    = System.currentTimeMillis()
             ))
             null
         } finally { retriever.release() }
@@ -346,8 +354,14 @@ class MusicRepository(
         playlistDao.renamePlaylist(id, name)
 
     suspend fun addSongToPlaylist(playlistId: Long, songId: String) = withContext(Dispatchers.IO) {
-        val pos = playlistDao.getSongCount(playlistId)
-        playlistDao.addSongToPlaylist(PlaylistSongCrossRef(playlistId, songId, pos))
+        // If the song is already a member, leave it where it is (the CrossRef
+        // insert IGNOREs on conflict, so a duplicate add is a no-op).
+        if (playlistDao.getSongPosition(playlistId, songId) != null) return@withContext
+        // Always insert at position 0 (top of the playlist) by shifting every
+        // existing member down by one. This makes newly added songs land at the
+        // top by default.
+        playlistDao.shiftPlaylistPositions(playlistId, 0)
+        playlistDao.addSongToPlaylist(PlaylistSongCrossRef(playlistId, songId, 0))
     }
 
     suspend fun removeSongFromPlaylist(playlistId: Long, songId: String) =

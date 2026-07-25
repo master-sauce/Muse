@@ -41,6 +41,16 @@ import java.io.File
 
 enum class RepeatMode { NONE, ALL, ONE }
 
+/**
+ * How the Library's Songs list is ordered.
+ *  - [NEWEST]  : most recently added first (createdAt DESC). This is the
+ *                default so newly downloaded / imported songs land at the TOP.
+ *  - [OLDEST]  : least recently added first (createdAt ASC).
+ *  - [CUSTOM]  : the user's manual drag order (stored in `songs.sortOrder`).
+ *                Drag-to-reorder is only available in this mode.
+ */
+enum class SongSortMode { NEWEST, OLDEST, CUSTOM }
+
 // NOTE: DownloadTask, PlaylistFetchState and BatchDownloadState now live in
 // com.Music.downloader.DownloadState so they can be shared between the
 // ViewModel (UI) and the app-scoped download engine. They are re-exported here
@@ -64,6 +74,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _songs = MutableStateFlow<List<SongEntity>>(emptyList())
     val songs: StateFlow<List<SongEntity>> = _songs.asStateFlow()
     private var isDragInProgress = false
+
+    // ── Song sort mode (Newest / Oldest / Custom) ───────────────────────────
+    // Persisted in SharedPreferences so the user's choice survives restarts.
+    // Default is NEWEST so newly added songs appear at the top of the Library.
+    private val _songSortMode = MutableStateFlow(
+        loadSongSortMode()
+    )
+    val songSortMode: StateFlow<SongSortMode> = _songSortMode.asStateFlow()
+
+    private fun loadSongSortMode(): SongSortMode {
+        val prefs = getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
+        return when (prefs.getString("song_sort_mode", "NEWEST")) {
+            "OLDEST" -> SongSortMode.OLDEST
+            "CUSTOM" -> SongSortMode.CUSTOM
+            else     -> SongSortMode.NEWEST
+        }
+    }
+
+    private fun persistSongSortMode(mode: SongSortMode) {
+        getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putString("song_sort_mode", mode.name).apply()
+    }
+
+    /** Re-apply the current sort mode to a snapshot of songs. */
+    private fun applySort(list: List<SongEntity>): List<SongEntity> = when (_songSortMode.value) {
+        SongSortMode.NEWEST -> list.sortedByDescending { it.createdAt }
+        SongSortMode.OLDEST -> list.sortedBy { it.createdAt }
+        SongSortMode.CUSTOM -> list.sortedBy { it.sortOrder }
+    }
+
+    /** Switch the Library's song sort mode; re-sorts the live list immediately. */
+    fun setSongSortMode(mode: SongSortMode) {
+        if (_songSortMode.value == mode) return
+        _songSortMode.value = mode
+        persistSongSortMode(mode)
+        if (!isDragInProgress) {
+            _songs.value = applySort(_songs.value)
+        }
+    }
 
     // ── Download state: delegated to the app-scoped DownloadState ───────────
     val activeDownloads: StateFlow<Map<String, DownloadTask>> = DownloadState.activeDownloads
@@ -133,6 +182,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playlistSelectedIds: StateFlow<Set<String>> = _playlistSelectedIds.asStateFlow()
     val inPlaylistSelectionMode get() = _playlistSelectedIds.value.isNotEmpty()
 
+    // ── Playlist sort + add-to-top preferences ──────────────────────────────
+    // Same Newest / Oldest / Custom idea as the library, but for the songs
+    // inside a playlist. CUSTOM = the per-playlist manual drag order (stored
+    // in `playlist_songs.position`). Newest/Oldest re-sort the playlist's
+    // members by their `createdAt` without touching the persisted order, so
+    // toggling back to Custom restores the user's arrangement.
+    private val _playlistSortMode = MutableStateFlow(loadPlaylistSortMode())
+    val playlistSortMode: StateFlow<SongSortMode> = _playlistSortMode.asStateFlow()
+
+    private fun loadPlaylistSortMode(): SongSortMode {
+        val prefs = getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
+        return when (prefs.getString("playlist_sort_mode", "NEWEST")) {
+            "OLDEST" -> SongSortMode.OLDEST
+            "CUSTOM" -> SongSortMode.CUSTOM
+            else     -> SongSortMode.NEWEST
+        }
+    }
+
+    private fun persistPlaylistSortMode(mode: SongSortMode) {
+        getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putString("playlist_sort_mode", mode.name).apply()
+    }
+
+    /** Re-apply the current playlist sort mode to a snapshot of songs. */
+    private fun applyPlaylistSort(list: List<SongEntity>): List<SongEntity> = when (_playlistSortMode.value) {
+        SongSortMode.NEWEST -> list.sortedByDescending { it.createdAt }
+        SongSortMode.OLDEST -> list.sortedBy { it.createdAt }
+        SongSortMode.CUSTOM -> list // playlist_songs.position order comes from the DB
+    }
+
+    /** Switch the playlist-detail sort mode and re-sort the loaded playlist. */
+    fun setPlaylistSortMode(mode: SongSortMode) {
+        if (_playlistSortMode.value == mode) return
+        _playlistSortMode.value = mode
+        persistPlaylistSortMode(mode)
+        if (!isDragInProgress) {
+            _playlistSongs.value = applyPlaylistSort(_playlistSongs.value)
+        }
+    }
+
     /** True while the selected songs are being zipped for sharing. */
     private val _isZipping = MutableStateFlow(false)
     val isZipping: StateFlow<Boolean> = _isZipping.asStateFlow()
@@ -159,12 +248,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _playlistSongs = MutableStateFlow<List<SongEntity>>(emptyList())
     val playlistSongs: StateFlow<List<SongEntity>> = _playlistSongs.asStateFlow()
     private var playlistSongsJob: Job? = null
+    /** The playlist currently loaded into [_playlistSongs] (for re-sort on mode change). */
+    private var loadedPlaylistId: Long? = null
 
     init {
         viewModelScope.launch {
             repository.allSongs.collect {
                 if (!isDragInProgress) {
-                    _songs.value = it
+                    _songs.value = applySort(it)
                     _currentSong.value = it.find { s -> s.id == _currentSong.value?.id }
                 }
             }
@@ -701,6 +792,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun moveSong(fromIndex: Int, toIndex: Int) {
+        // Drag-reorder only makes sense in CUSTOM mode — in Newest / Oldest the
+        // list is sorted by an attribute the user can't override by dragging.
+        if (_songSortMode.value != SongSortMode.CUSTOM) return
         val list = _songs.value.toMutableList()
         val song = list.removeAt(fromIndex)
         list.add(toIndex, song)
@@ -721,6 +815,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // allSongs collector un-gates the instant we flip the flag, emitting a
         // partially-updated list (some rows have new sortOrder, others old) and
         // causing the list to flicker to a mixed order before settling.
+        // Only write back in CUSTOM mode — in Newest / Oldest the on-screen
+        // order isn't the persisted order, so writing indices would scramble
+        // the user's custom order behind their back.
+        if (_songSortMode.value != SongSortMode.CUSTOM) {
+            isDragInProgress = false
+            return
+        }
         viewModelScope.launch {
             _songs.value.forEachIndexed { index, song -> repository.updateSortOrder(song.id, index) }
             isDragInProgress = false
@@ -729,16 +830,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun loadPlaylistSongs(playlistId: Long) {
         playlistSongsJob?.cancel()
+        loadedPlaylistId = playlistId
         playlistSongsJob = viewModelScope.launch {
             repository.getPlaylistSongs(playlistId).collect {
                 if (!isDragInProgress) {
-                    _playlistSongs.value = it
+                    _playlistSongs.value = applyPlaylistSort(it)
                 }
             }
         }
     }
 
     fun movePlaylistSong(playlistId: Long, fromIndex: Int, toIndex: Int) {
+        // Drag-reorder only makes sense in CUSTOM mode (Newest / Oldest are
+        // sorted by an attribute the user can't override by dragging).
+        if (_playlistSortMode.value != SongSortMode.CUSTOM) return
         val list = _playlistSongs.value.toMutableList()
         val song = list.removeAt(fromIndex)
         list.add(toIndex, song)
@@ -749,7 +854,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun endPlaylistDrag(playlistId: Long) {
         // Keep the drag flag on until the DB write-back finishes — same reason
         // as endDrag(): avoids the playlistSongs collector emitting a
-        // partially-reordered list and flickering the UI.
+        // partially-reordered list and flickering the UI. Only persist in
+        // CUSTOM mode; in Newest / Oldest the on-screen order isn't the
+        // persisted one so writing it back would scramble the user's order.
+        if (_playlistSortMode.value != SongSortMode.CUSTOM) {
+            isDragInProgress = false
+            return
+        }
         viewModelScope.launch {
             repository.updatePlaylistSongOrder(playlistId, _playlistSongs.value)
             isDragInProgress = false
@@ -803,7 +914,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ids = _playlistSelectedIds.value
         if (ids.isEmpty()) return
         viewModelScope.launch {
-            ids.forEach { repository.addSongToPlaylist(targetPlaylistId, it) }
+            // Insert in reverse so the first selected song ends up at the very
+            // top of the playlist (each later insert bumps the previous ones
+            // down by one). New songs always land at the top.
+            ids.reversed().forEach { repository.addSongToPlaylist(targetPlaylistId, it) }
         }
     }
 
@@ -829,7 +943,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ids = _selectedIds.value
         if (ids.isEmpty()) return
         viewModelScope.launch {
-            ids.forEach { repository.addSongToPlaylist(playlistId, it) }
+            // Insert in reverse so the first selected song ends up at the very
+            // top of the playlist (each later insert bumps the previous ones
+            // down by one). New songs always land at the top.
+            ids.reversed().forEach { repository.addSongToPlaylist(playlistId, it) }
         }
     }
 
@@ -947,7 +1064,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createPlaylist(name: String) = viewModelScope.launch { repository.createPlaylist(name) }
     fun deletePlaylist(playlist: PlaylistEntity) = viewModelScope.launch { repository.deletePlaylist(playlist) }
-    fun addSongToPlaylist(playlistId: Long, songId: String) = viewModelScope.launch { repository.addSongToPlaylist(playlistId, songId) }
+    fun addSongToPlaylist(playlistId: Long, songId: String) = viewModelScope.launch {
+        repository.addSongToPlaylist(playlistId, songId)
+    }
     fun renamePlaylist(id: Long, name: String) = viewModelScope.launch { repository.renamePlaylist(id, name) }
     fun removeSongFromPlaylist(playlistId: Long, songId: String) = viewModelScope.launch { repository.removeSongFromPlaylist(playlistId, songId) }
     fun getPlaylistSongs(playlistId: Long) = repository.getPlaylistSongs(playlistId)

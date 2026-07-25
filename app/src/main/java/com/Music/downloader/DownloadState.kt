@@ -182,7 +182,10 @@ object DownloadState {
         val db = androidx.room.Room.databaseBuilder(
             appContext, com.Music.data.local.AppDatabase::class.java, "muse-db"
         )
-            .addMigrations(com.Music.data.local.AppDatabase.MIGRATION_1_2)
+            .addMigrations(
+                com.Music.data.local.AppDatabase.MIGRATION_1_2,
+                com.Music.data.local.AppDatabase.MIGRATION_2_3
+            )
             .addCallback(object : androidx.room.RoomDatabase.Callback() {
                 override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                     db.execSQL("PRAGMA foreign_keys = ON")

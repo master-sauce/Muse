@@ -40,4 +40,19 @@ interface PlaylistDao {
 
     @Query("UPDATE playlist_songs SET position = :position WHERE playlistId = :playlistId AND songId = :songId")
     suspend fun updateSongPosition(playlistId: Long, songId: String, position: Int)
+
+    /**
+     * Bump every song's position in [playlistId] up by 1, starting at
+     * [fromPosition]. Used to make room at the top (or anywhere) when a song
+     * is inserted ahead of the existing members instead of being appended.
+     */
+    @Query("UPDATE playlist_songs SET position = position + 1 WHERE playlistId = :playlistId AND position >= :fromPosition")
+    suspend fun shiftPlaylistPositions(playlistId: Long, fromPosition: Int)
+
+    /**
+     * Where a given song currently sits in [playlistId], or null if it isn't
+     * a member. Used to avoid double-inserting and to detect the insert case.
+     */
+    @Query("SELECT position FROM playlist_songs WHERE playlistId = :playlistId AND songId = :songId")
+    suspend fun getSongPosition(playlistId: Long, songId: String): Int?
 }

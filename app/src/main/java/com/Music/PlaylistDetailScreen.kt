@@ -48,6 +48,7 @@ fun PlaylistDetailScreen(
     onNavigateToPlayer: () -> Unit
 ) {
     val songs           by viewModel.playlistSongs.collectAsState()
+    val playlistSortMode by viewModel.playlistSortMode.collectAsState()
     val playlists       by viewModel.playlists.collectAsState()
     val playlist        = playlists.find { it.playlist.id == playlistId }?.playlist
     val currentSong     by viewModel.currentSong.collectAsState()
@@ -56,6 +57,7 @@ fun PlaylistDetailScreen(
     val selectedIds     by viewModel.playlistSelectedIds.collectAsState()
     val inSelection     = selectedIds.isNotEmpty()
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
+    val canReorder      = playlistSortMode == SongSortMode.CUSTOM
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
@@ -170,6 +172,62 @@ fun PlaylistDetailScreen(
                     },
                     actions = {
                         if (songs.isNotEmpty()) {
+                            // Sort menu — Newest / Oldest / Custom. Drag-reorder
+                            // only works in Custom, so the menu doubles as the
+                            // way to re-enable dragging.
+                            var showSortMenu by remember { mutableStateOf(false) }
+                            Box {
+                                IconButton(onClick = { showSortMenu = true }) {
+                                    Icon(Icons.Default.Sort, contentDescription = "Sort")
+                                }
+                                DropdownMenu(
+                                    expanded         = showSortMenu,
+                                    onDismissRequest = { showSortMenu = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text        = { Text("Newest first") },
+                                        leadingIcon = { Icon(Icons.Default.ArrowDownward, null) },
+                                        trailingIcon = {
+                                            if (playlistSortMode == SongSortMode.NEWEST) {
+                                                Icon(Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showSortMenu = false
+                                            viewModel.setPlaylistSortMode(SongSortMode.NEWEST)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text        = { Text("Oldest first") },
+                                        leadingIcon = { Icon(Icons.Default.ArrowUpward, null) },
+                                        trailingIcon = {
+                                            if (playlistSortMode == SongSortMode.OLDEST) {
+                                                Icon(Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showSortMenu = false
+                                            viewModel.setPlaylistSortMode(SongSortMode.OLDEST)
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text        = { Text("Custom order") },
+                                        leadingIcon = { Icon(Icons.Default.DragHandle, null) },
+                                        trailingIcon = {
+                                            if (playlistSortMode == SongSortMode.CUSTOM) {
+                                                Icon(Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        },
+                                        onClick = {
+                                            showSortMenu = false
+                                            viewModel.setPlaylistSortMode(SongSortMode.CUSTOM)
+                                        }
+                                    )
+                                }
+                            }
                             IconButton(onClick = { isSearching = true }) {
                                 Icon(Icons.Default.Search, contentDescription = "Search")
                             }
@@ -374,7 +432,7 @@ fun PlaylistDetailScreen(
                                 inSelection = inSelection,
                                 isDragging  = isDragging,
                                 dragHandleModifier = Modifier.draggableHandle(
-                                    enabled       = !inSelection && searchQuery.isEmpty(),
+                                    enabled       = canReorder && !inSelection && searchQuery.isEmpty(),
                                     onDragStarted = { viewModel.startDrag() },
                                     onDragStopped = { viewModel.endPlaylistDrag(playlistId) }
                                 ),

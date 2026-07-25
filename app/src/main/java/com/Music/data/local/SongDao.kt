@@ -29,6 +29,14 @@ interface SongDao {
     @Query("UPDATE songs SET sortOrder = :order WHERE id = :id")
     suspend fun updateSortOrder(id: String, order: Int)
 
+    /**
+     * Bump every song's sortOrder up by 1. Used to make room at the top (position 0)
+     * when a new song is inserted ahead of the existing members so it lands at the
+     * head of the user's custom order.
+     */
+    @Query("UPDATE songs SET sortOrder = sortOrder + 1")
+    suspend fun shiftAllSortOrders()
+
     @Query("DELETE FROM songs WHERE id IN (:ids)")
     suspend fun deleteSongsByIds(ids: List<String>)
 }

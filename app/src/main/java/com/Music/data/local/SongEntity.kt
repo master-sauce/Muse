@@ -12,7 +12,11 @@ data class SongEntity(
     val duration: Long,
     val thumbnailUrl: String?,
     val sourceUrl: String,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    /** Wall-clock millis when the song was added to the library. Drives the
+     *  Newest / Oldest sort modes in the Library. Older rows (pre-migration)
+     *  fall back to their rowid so their relative insertion order is preserved. */
+    val createdAt: Long = 0L
 )
 
 fun SongEntity.isVideo(): Boolean =
