@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -53,7 +55,10 @@ import com.Music.downloader.PlaylistEntry
 import com.Music.downloader.PlaylistFetchState
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import androidx.compose.material3.ripple
 import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -1387,15 +1392,9 @@ fun AddToPlaylistDialog(
             } else {
                 LazyColumn {
                     itemsIndexed(playlists) { index, pl ->
-                        ListItem(
-                            modifier = Modifier.clickable { onSelect(pl.id) },
-                            headlineContent = {
-                                Text(pl.name, color = MaterialTheme.colorScheme.onSurface)
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.QueueMusic, null,
-                                    tint = MaterialTheme.colorScheme.primary)
-                            }
+                        AddToPlaylistRow(
+                            name       = pl.name,
+                            onClick    = { onSelect(pl.id) }
                         )
                         if (index < playlists.lastIndex) {
                             HorizontalDivider()
@@ -1406,6 +1405,52 @@ fun AddToPlaylistDialog(
         },
         confirmButton = {},
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+/**
+ * One row in the "Add to Playlist" dialog. Uses an [interactionSource] with
+ * [collectIsPressedAsState] to drive a visible "filled" background the moment
+ * the row is touched, and delays the click callback by a few milliseconds so
+ * even the quickest tap actually paints the press fill before the dialog
+ * dismisses — that's the responsiveness the rest of the app already has on
+ * its list rows.
+ */
+@Composable
+private fun AddToPlaylistRow(name: String, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scope = rememberCoroutineScope()
+    val fill by animateColorAsState(
+        targetValue = if (isPressed) MaterialTheme.colorScheme.primaryContainer
+                      else Color.Transparent,
+        label = "addToPlaylistFill"
+    )
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(fill)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple()
+            ) {
+                // Defer the action so the press fill is visibly painted first
+                // even on the lightest tap; 120ms is short enough to feel
+                // instant but long enough to show the highlight.
+                scope.launch {
+                    delay(120)
+                    onClick()
+                }
+            },
+        headlineContent = {
+            Text(name,
+                color = if (isPressed) MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurface)
+        },
+        leadingContent = {
+            Icon(Icons.Default.QueueMusic, null,
+                tint = MaterialTheme.colorScheme.primary)
+        }
     )
 }
 
