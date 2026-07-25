@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -246,7 +247,8 @@ fun YouTubeSearchScreen(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 "Type a song or artist — results load automatically.\n" +
-                                "Tap a result to copy its link, then paste via +",
+                                "Tap a result to copy its link, then paste via +\n" +
+                                "or use the download icon to save it to your library",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = TextAlign.Center
@@ -261,7 +263,11 @@ fun YouTubeSearchScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             items(state.results, key = { it.url }) { result ->
-                                SearchResultRow(result) { copyLink(result) }
+                                SearchResultRow(
+                                    result,
+                                    onCopy = { copyLink(result) },
+                                    onDownload = { viewModel.downloadSong(result.url) }
+                                )
                             }
                         }
                     }
@@ -274,7 +280,8 @@ fun YouTubeSearchScreen(
 @Composable
 private fun SearchResultRow(
     result: SearchResult,
-    onCopy: () -> Unit
+    onCopy: () -> Unit,
+    onDownload: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -355,10 +362,16 @@ private fun SearchResultRow(
 
             Spacer(Modifier.width(4.dp))
 
-            // Copy action.
+            // Copy + download actions.
             IconButton(onClick = onCopy) {
                 Icon(
                     Icons.Default.ContentCopy, "Copy link",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            IconButton(onClick = onDownload) {
+                Icon(
+                    Icons.Default.Download, "Download",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
