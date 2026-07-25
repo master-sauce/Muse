@@ -524,6 +524,7 @@ fun LibraryScreen(
         if (showConfirmDeleteSelected) {
             AlertDialog(
                 onDismissRequest = { showConfirmDeleteSelected = false },
+                containerColor = MaterialTheme.colorScheme.background,
                 title   = { Text("Delete selected songs?") },
                 text    = {
                     Text(
@@ -532,15 +533,19 @@ fun LibraryScreen(
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = {
-                        viewModel.deleteSelected()
-                        showConfirmDeleteSelected = false
-                    }) {
-                        Text("Delete", color = MaterialTheme.colorScheme.error)
-                    }
+                    Button(
+                        onClick = {
+                            viewModel.deleteSelected()
+                            showConfirmDeleteSelected = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    ) { Text("Delete") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showConfirmDeleteSelected = false }) { Text("Cancel") }
+                    OutlinedButton(onClick = { showConfirmDeleteSelected = false }) { Text("Cancel") }
                 }
             )
         }
@@ -1071,17 +1076,22 @@ fun SongListItem(
     if (showConfirmDelete) {
         AlertDialog(
             onDismissRequest = { showConfirmDelete = false },
+            containerColor = MaterialTheme.colorScheme.background,
             title   = { Text("Delete song?") },
             text    = {
                 Text("\"${song.title}\" will be permanently removed from your library and its file deleted.")
             },
             confirmButton = {
-                TextButton(onClick = { onDelete(); showConfirmDelete = false }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
+                Button(
+                    onClick = { onDelete(); showConfirmDelete = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmDelete = false }) { Text("Cancel") }
+                OutlinedButton(onClick = { showConfirmDelete = false }) { Text("Cancel") }
             }
         )
     }
@@ -1195,17 +1205,22 @@ private fun PlaylistItem(
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
+            containerColor = MaterialTheme.colorScheme.background,
             title   = { Text("Delete playlist?") },
             text    = {
                 Text("\"${playlistWithSongs.playlist.name}\" will be removed. Songs stay in library.")
             },
             confirmButton = {
-                TextButton(onClick = { onDelete(); showConfirm = false }) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
+                Button(
+                    onClick = { onDelete(); showConfirm = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirm = false }) { Text("Cancel") }
+                OutlinedButton(onClick = { showConfirm = false }) { Text("Cancel") }
             }
         )
     }
@@ -1305,6 +1320,7 @@ fun NewPlaylistDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.background,
         title   = { Text("New Playlist") },
         text    = {
             OutlinedTextField(
@@ -1316,12 +1332,12 @@ fun NewPlaylistDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
             )
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick  = { if (name.isNotBlank()) onConfirm(name.trim()) },
                 enabled  = name.isNotBlank()
             ) { Text("Create") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
@@ -1334,6 +1350,7 @@ fun RenamePlaylistDialog(
     var name by remember { mutableStateOf(currentName) }
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.background,
         title   = { Text("Rename Playlist") },
         text    = {
             OutlinedTextField(
@@ -1345,12 +1362,12 @@ fun RenamePlaylistDialog(
             )
         },
         confirmButton = {
-            TextButton(
+            Button(
                 onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
                 enabled = name.isNotBlank() && name.trim() != currentName
             ) { Text("Save") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 
@@ -1362,27 +1379,33 @@ fun AddToPlaylistDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.background,
         title   = { Text("Add to Playlist") },
         text    = {
             if (playlists.isEmpty()) {
                 Text("No playlists yet. Create one in the Playlists tab first.")
             } else {
                 LazyColumn {
-                    itemsIndexed(playlists) { _, pl ->
-                        TextButton(
-                            onClick  = { onSelect(pl.id) },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.QueueMusic, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(pl.name, modifier = Modifier.weight(1f))
+                    itemsIndexed(playlists) { index, pl ->
+                        ListItem(
+                            modifier = Modifier.clickable { onSelect(pl.id) },
+                            headlineContent = {
+                                Text(pl.name, color = MaterialTheme.colorScheme.onSurface)
+                            },
+                            leadingContent = {
+                                Icon(Icons.Default.QueueMusic, null,
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
+                        )
+                        if (index < playlists.lastIndex) {
+                            HorizontalDivider()
                         }
                     }
                 }
             }
         },
         confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } }
     )
 }
 

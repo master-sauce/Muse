@@ -57,6 +57,13 @@ fun PlaylistDetailScreen(
     val selectedIds     by viewModel.playlistSelectedIds.collectAsState()
     val inSelection     = selectedIds.isNotEmpty()
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
+    // Confirm-before-remove dialogs: one for the batch "remove selected" action,
+    // one for removing a single song via its row menu. The single one needs to
+    // remember which song the user tapped so the dialog can name it and the
+    // confirm handler knows what to remove.
+    var showConfirmRemoveSelected by remember { mutableStateOf(false) }
+    var showConfirmRemoveSingle  by remember { mutableStateOf(false) }
+    var pendingRemoveSong        by remember { mutableStateOf<SongEntity?>(null) }
     val canReorder      = playlistSortMode == SongSortMode.CUSTOM
 
     var searchQuery by remember { mutableStateOf("") }
@@ -117,7 +124,7 @@ fun PlaylistDetailScreen(
                         IconButton(onClick = { viewModel.selectAllPlaylist() }) {
                             Icon(Icons.Default.SelectAll, "Select all")
                         }
-                        IconButton(onClick = { viewModel.removeSelectedFromPlaylist(playlistId) }) {
+                        IconButton(onClick = { showConfirmRemoveSelected = true }) {
                             Icon(
                                 Icons.Default.DeleteSweep, "Remove selected from playlist",
                                 tint = MaterialTheme.colorScheme.error
@@ -457,7 +464,10 @@ fun PlaylistDetailScreen(
                                 onRemoveFromQueue = { viewModel.removeFromQueue(song.id) },
                                 onToggleSelect = { viewModel.togglePlaylistSelect(song.id) },
                                 onShareAsLink = { viewModel.shareSongAsLink(song) },
-                                onRemove  = { viewModel.removeSongFromPlaylist(playlistId, song.id) }
+                                onRemove  = {
+                                    pendingRemoveSong = song
+                                    showConfirmRemoveSingle = true
+                                }
                             )
                         }
                     }
@@ -474,6 +484,69 @@ fun PlaylistDetailScreen(
                 showAddSelectedToPlaylist = false
             },
             onDismiss = { showAddSelectedToPlaylist = false }
+        )
+    }
+
+    if (showConfirmRemoveSelected) {
+        AlertDialog(
+            onDismissRequest = { showConfirmRemoveSelected = false },
+            containerColor = MaterialTheme.colorScheme.background,
+            title   = { Text("Remove from playlist?") },
+            text    = {
+                Text(
+                    "${selectedIds.size} song${if (selectedIds.size == 1) "" else "s"} will be " +
+                    "removed from this playlist. They stay in your library."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.removeSelectedFromPlaylist(playlistId)
+                        showConfirmRemoveSelected = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showConfirmRemoveSelected = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showConfirmRemoveSingle && pendingRemoveSong != null) {
+        val song = pendingRemoveSong!!
+        AlertDialog(
+            onDismissRequest = {
+                showConfirmRemoveSingle = false
+                pendingRemoveSong = null
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+            title   = { Text("Remove from playlist?") },
+            text    = {
+                Text("\"${song.title}\" will be removed from this playlist. It stays in your library.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.removeSongFromPlaylist(playlistId, song.id)
+                        showConfirmRemoveSingle = false
+                        pendingRemoveSong = null
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = {
+                    showConfirmRemoveSingle = false
+                    pendingRemoveSong = null
+                }) { Text("Cancel") }
+            }
         )
     }
 }
