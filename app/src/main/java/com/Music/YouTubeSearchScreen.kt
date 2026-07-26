@@ -5,7 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,8 +29,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -67,6 +71,24 @@ fun YouTubeSearchScreen(
     val currentSong by viewModel.currentSong.collectAsState()
     var query by rememberSaveable { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+
+    // A single live preview-toast ref hoisted to the screen so a new long-press
+    // cancels the previous card's toast before showing its own — only one
+    // title preview is ever on screen at a time.
+    val previewToast = remember { mutableStateOf<Toast?>(null) }
+    val haptic = LocalHapticFeedback.current
+    fun showPreview(title: String) {
+        previewToast.value?.cancel()
+        val toast = Toast.makeText(context, title, Toast.LENGTH_LONG)
+        previewToast.value = toast
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        toast.show()
+    }
+    // Cancel any lingering toast when leaving the screen so it doesn't outlive
+    // the search UI.
+    DisposableEffect(Unit) {
+        onDispose { previewToast.value?.cancel() }
+    }
 
     // The morphing PlayerOverlay pins a MiniPlayer bar on top of this screen
     // when a song is loaded. Reserve matching bottom space so the last results
@@ -266,7 +288,8 @@ fun YouTubeSearchScreen(
                                 SearchResultRow(
                                     result,
                                     onCopy = { copyLink(result) },
-                                    onDownload = { viewModel.downloadSong(result.url) }
+                                    onDownload = { viewModel.downloadSong(result.url) },
+                                    onLongPress = { showPreview(result.title) }
                                 )
                             }
                         }
@@ -277,16 +300,26 @@ fun YouTubeSearchScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SearchResultRow(
     result: SearchResult,
     onCopy: () -> Unit,
-    onDownload: () -> Unit
+    onDownload: () -> Unit,
+    onLongPress: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCopy() },
+            // Long-press shows an Android Toast with the full (untruncated)
+            // title so the user can read titles that don't fit in the 2-line
+            // card. The previous card's toast is cancelled by the caller so
+            // only one preview is on screen at a time. Tap still copies the
+            // link, as before.
+            .combinedClickable(
+                onClick = { onCopy() },
+                onLongClick = onLongPress
+            ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface

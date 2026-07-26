@@ -48,7 +48,11 @@ fun PlaylistDetailScreen(
     onNavigateToPlayer: () -> Unit
 ) {
     val songs           by viewModel.playlistSongs.collectAsState()
-    val playlistSortMode by viewModel.playlistSortMode.collectAsState()
+    // Each playlist keeps its own sort mode now, so we read the per-id map and
+    // look up this playlist's mode (defaulting to NEWEST). Collecting the map
+    // keeps the UI in sync if the mode changes elsewhere.
+    val playlistSortModes by viewModel.playlistSortModes.collectAsState()
+    val playlistSortMode = playlistSortModes[playlistId] ?: SongSortMode.NEWEST
     val playlists       by viewModel.playlists.collectAsState()
     val playlist        = playlists.find { it.playlist.id == playlistId }?.playlist
     val currentSong     by viewModel.currentSong.collectAsState()
@@ -202,7 +206,7 @@ fun PlaylistDetailScreen(
                                         },
                                         onClick = {
                                             showSortMenu = false
-                                            viewModel.setPlaylistSortMode(SongSortMode.NEWEST)
+                                            viewModel.setPlaylistSortMode(playlistId, SongSortMode.NEWEST)
                                         }
                                     )
                                     DropdownMenuItem(
@@ -216,7 +220,7 @@ fun PlaylistDetailScreen(
                                         },
                                         onClick = {
                                             showSortMenu = false
-                                            viewModel.setPlaylistSortMode(SongSortMode.OLDEST)
+                                            viewModel.setPlaylistSortMode(playlistId, SongSortMode.OLDEST)
                                         }
                                     )
                                     DropdownMenuItem(
@@ -230,7 +234,7 @@ fun PlaylistDetailScreen(
                                         },
                                         onClick = {
                                             showSortMenu = false
-                                            viewModel.setPlaylistSortMode(SongSortMode.CUSTOM)
+                                            viewModel.setPlaylistSortMode(playlistId, SongSortMode.CUSTOM)
                                         }
                                     )
                                 }
