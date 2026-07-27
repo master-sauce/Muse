@@ -150,22 +150,6 @@ fun LibraryScreen(
         if (isSearching) focusRequester.requestFocus()
     }
 
-    // Forward share intents emitted by the ViewModel (e.g. sharing a zip of
-    // selected songs) to the system.
-    LaunchedEffect(Unit) {
-        viewModel.shareIntents.collect { intent ->
-            context.startActivity(intent)
-        }
-    }
-    // Forward share intents emitted by the download engine (links file /
-    // library export) to the system. These come from the app-scoped
-    // DownloadState so they work even if the Activity is recreated.
-    LaunchedEffect(Unit) {
-        viewModel.downloadShareIntents.collect { intent ->
-            context.startActivity(intent)
-        }
-    }
-
     Scaffold(
         topBar = {
             if (inSelection) {

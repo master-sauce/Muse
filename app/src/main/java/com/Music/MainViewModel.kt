@@ -985,31 +985,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun shareSelectedAsZip() {
         val ids = _selectedIds.value
         if (ids.isEmpty()) return
-        if (_isZipping.value) return
         viewModelScope.launch {
-            _isZipping.value = true
-            try {
-                val songs = _songs.value.filter { it.id in ids }
-                val file = repository.zipSongs(songs)
-                if (file == null) {
-                    _errorEvents.emit("None of the selected songs have a file to share")
-                    return@launch
-                }
-                val context = getApplication<Application>()
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/zip"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_TITLE, file.name)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                _shareIntents.emit(Intent.createChooser(shareIntent, "Share selected songs"))
-                clearSelection()
-            } catch (e: Exception) {
-                _errorEvents.emit("Failed to create zip: ${e.localizedMessage}")
-            } finally {
-                _isZipping.value = false
+            if (buildAndShareZip(ids, _songs.value)) clearSelection()
+        }
+    }
+
+    /**
+     * Same as [shareSelectedAsZip] but for songs selected on the Playlist Detail
+     * screen (the playlist-detail selection set, not the library's). Shares the
+     * playlist's selected songs' files as a zip and clears the playlist
+     * selection on success.
+     */
+    fun sharePlaylistSelectedAsZip() {
+        val ids = _playlistSelectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            if (buildAndShareZip(ids, _playlistSongs.value)) clearPlaylistSelection()
+        }
+    }
+
+    /**
+     * Build "muse_share.zip" from the given songs (those whose id is in [ids])
+     * and emit a share intent. Reports progress via [isZipping] and surfaces
+     * failures via [errorEvents]. Returns true on success (so the caller can
+     * clear its selection), false otherwise. Shared by the library and playlist
+     * batch-share paths so both behave identically.
+     */
+    private suspend fun buildAndShareZip(ids: Set<String>, songs: List<SongEntity>): Boolean {
+        if (_isZipping.value) return false
+        _isZipping.value = true
+        try {
+            val toZip = songs.filter { it.id in ids }
+            val file = repository.zipSongs(toZip)
+            if (file == null) {
+                _errorEvents.emit("None of the selected songs have a file to share")
+                return false
             }
+            val context = getApplication<Application>()
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/zip"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TITLE, file.name)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            _shareIntents.emit(Intent.createChooser(shareIntent, "Share selected songs"))
+            return true
+        } catch (e: Exception) {
+            _errorEvents.emit("Failed to create zip: ${e.localizedMessage}")
+            return false
+        } finally {
+            _isZipping.value = false
         }
     }
 
@@ -1053,28 +1079,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ids = _selectedIds.value
         if (ids.isEmpty()) return
         viewModelScope.launch {
-            val links = _songs.value
-                .filter { it.id in ids }
-                .map { it.sourceUrl.trim() }
-                .filter { it.startsWith("http") }
-                .distinct()
-            if (links.isEmpty()) {
-                _errorEvents.emit("None of the selected songs have a link to share")
-                return@launch
-            }
-            val text = links.joinToString("\n")
-            _shareIntents.emit(
-                Intent.createChooser(
-                    Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TEXT, text)
-                        putExtra(Intent.EXTRA_TITLE, "Muse links")
-                    },
-                    "Share ${links.size} link${if (links.size == 1) "" else "s"}"
-                )
-            )
-            clearSelection()
+            if (buildAndShareLinks(ids, _songs.value)) clearSelection()
         }
+    }
+
+    /**
+     * Same as [shareSelectedAsLinks] but for songs selected on the Playlist
+     * Detail screen. Shares the playlist's selected songs' source links as text
+     * and clears the playlist selection on success.
+     */
+    fun sharePlaylistSelectedAsLinks() {
+        val ids = _playlistSelectedIds.value
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            if (buildAndShareLinks(ids, _playlistSongs.value)) clearPlaylistSelection()
+        }
+    }
+
+    /**
+     * Collect the source URLs of the given songs (those whose id is in [ids]),
+     * drop non-http(s) ones, dedupe, and emit a text/plain share intent with one
+     * link per line. Surfaces an error if no selected song has a link. Returns
+     * true on success (so the caller can clear its selection), false otherwise.
+     * Shared by the library and playlist batch-share-link paths.
+     */
+    private suspend fun buildAndShareLinks(ids: Set<String>, songs: List<SongEntity>): Boolean {
+        val links = songs
+            .filter { it.id in ids }
+            .map { it.sourceUrl.trim() }
+            .filter { it.startsWith("http") }
+            .distinct()
+        if (links.isEmpty()) {
+            _errorEvents.emit("None of the selected songs have a link to share")
+            return false
+        }
+        val text = links.joinToString("\n")
+        _shareIntents.emit(
+            Intent.createChooser(
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, text)
+                    putExtra(Intent.EXTRA_TITLE, "Muse links")
+                },
+                "Share ${links.size} link${if (links.size == 1) "" else "s"}"
+            )
+        )
+        return true
     }
 
     fun deleteSong(song: SongEntity) {

@@ -60,7 +60,9 @@ fun PlaylistDetailScreen(
     val queue           by viewModel.queue.collectAsState()
     val selectedIds     by viewModel.playlistSelectedIds.collectAsState()
     val inSelection     = selectedIds.isNotEmpty()
+    val isZipping       by viewModel.isZipping.collectAsState()
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
+    var showShareMethodDialog     by remember { mutableStateOf(false) }
     // Confirm-before-remove dialogs: one for the batch "remove selected" action,
     // one for removing a single song via its row menu. The single one needs to
     // remember which song the user tapped so the dialog can name it and the
@@ -96,6 +98,7 @@ fun PlaylistDetailScreen(
     // In selection mode, back clears the selection instead of leaving the
     // screen. The "add selected to playlist" dialog is handled next.
     BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
+    BackHandler(enabled = showShareMethodDialog) { showShareMethodDialog = false }
     BackHandler(enabled = inSelection) { viewModel.clearPlaylistSelection() }
     BackHandler(enabled = isSearching && !inSelection) {
         isSearching = false
@@ -124,6 +127,19 @@ fun PlaylistDetailScreen(
                             enabled = playlists.any { it.playlist.id != playlistId }
                         ) {
                             Icon(Icons.Default.PlaylistAdd, "Add selected to playlist")
+                        }
+                        IconButton(
+                            onClick = { showShareMethodDialog = true },
+                            enabled = !isZipping
+                        ) {
+                            if (isZipping) {
+                                CircularProgressIndicator(
+                                    Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(Icons.Default.Share, "Share selected")
+                            }
                         }
                         IconButton(onClick = { viewModel.selectAllPlaylist() }) {
                             Icon(Icons.Default.SelectAll, "Select all")
@@ -488,6 +504,67 @@ fun PlaylistDetailScreen(
                 showAddSelectedToPlaylist = false
             },
             onDismiss = { showAddSelectedToPlaylist = false }
+        )
+    }
+
+    // Same share-method chooser as the Library: Files (zip of the song files)
+    // vs Links (the songs' source URLs as text). Shares the playlist-detail
+    // selection (not the library's) via the playlist-specific share helpers.
+    if (showShareMethodDialog) {
+        AlertDialog(
+            onDismissRequest = { showShareMethodDialog = false },
+            containerColor = MaterialTheme.colorScheme.background,
+            title   = { Text("Share selected") },
+            text    = {
+                Column {
+                    Text(
+                        "Choose how to share the ${selectedIds.size} selected " +
+                        "song${if (selectedIds.size == 1) "" else "s"}."
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    ListItem(
+                        modifier = Modifier.clickable {
+                            showShareMethodDialog = false
+                            viewModel.sharePlaylistSelectedAsZip()
+                        },
+                        headlineContent = {
+                            Text("Files (ZIP)",
+                                color = MaterialTheme.colorScheme.primary)
+                        },
+                        supportingContent = {
+                            Text("Bundle the song files into a .zip archive",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        },
+                        leadingContent = {
+                            Icon(Icons.Default.Share, null,
+                                tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+                    HorizontalDivider()
+                    ListItem(
+                        modifier = Modifier.clickable {
+                            showShareMethodDialog = false
+                            viewModel.sharePlaylistSelectedAsLinks()
+                        },
+                        headlineContent = {
+                            Text("Links",
+                                color = MaterialTheme.colorScheme.primary)
+                        },
+                        supportingContent = {
+                            Text("Share the song links as text (one per line)",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        },
+                        leadingContent = {
+                            Icon(Icons.Default.Link, null,
+                                tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showShareMethodDialog = false }) { Text("Cancel") }
+            }
         )
     }
 

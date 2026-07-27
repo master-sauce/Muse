@@ -67,7 +67,19 @@ fun MusicApp() {
             Toast.makeText(context, it, Toast.LENGTH_LONG).show()
         }
     }
-    // Share intents emitted by the download engine (links file / library export).
+    // Share intents emitted by this ViewModel (zip of selected songs, single
+    // song link, list of selected links, ...). Collected here — at the app
+    // root — so sharing works on EVERY screen, not just the Library. Without
+    // this, e.g. tapping "Share link" on a song inside a playlist detail
+    // screen would emit an intent that no one collects, so nothing happens.
+    LaunchedEffect(Unit) {
+        viewModel.shareIntents.collect { intent ->
+            context.startActivity(intent)
+        }
+    }
+    // Share intents emitted by the download engine (links file / library
+    // export). These come from the app-scoped DownloadState and are collected
+    // here for the same reason as above.
     LaunchedEffect(Unit) {
         viewModel.downloadShareIntents.collect { intent ->
             context.startActivity(intent)
