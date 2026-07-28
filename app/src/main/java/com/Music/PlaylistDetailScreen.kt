@@ -487,7 +487,8 @@ fun PlaylistDetailScreen(
                                 onRemove  = {
                                     pendingRemoveSong = song
                                     showConfirmRemoveSingle = true
-                                }
+                                },
+                                onDelete  = { viewModel.deleteSong(song) }
                             )
                         }
                     }
@@ -650,10 +651,13 @@ private fun PlaylistSongItem(
     onRemoveFromQueue: () -> Unit,
     onToggleSelect: () -> Unit,
     onShareAsLink: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val context = LocalContext.current
+    val haptic  = LocalHapticFeedback.current
     var showMenu by remember { mutableStateOf(false) }
+    var showConfirmDelete by remember { mutableStateOf(false) }
 
     // In selection mode the blue highlight follows the selection (not the
     // currently-playing song); outside selection it marks the current song.
@@ -721,6 +725,15 @@ private fun PlaylistSongItem(
                         }
                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                             DropdownMenuItem(
+                                text = { Text("Select Multiple") },
+                                leadingIcon = { Icon(Icons.Default.Checklist, null) },
+                                onClick = {
+                                    showMenu = false
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onToggleSelect()
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Play Next") },
                                 leadingIcon = { Icon(Icons.Default.SkipNext, null) },
                                 onClick = { onPlayNext(); showMenu = false }
@@ -756,6 +769,14 @@ private fun PlaylistSongItem(
                                 leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null, tint = MaterialTheme.colorScheme.error) },
                                 onClick = { onRemove(); showMenu = false }
                             )
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Delete, null,
+                                        tint = MaterialTheme.colorScheme.error)
+                                },
+                                onClick = { showMenu = false; showConfirmDelete = true }
+                            )
                         }
                     }
                     Icon(
@@ -769,4 +790,27 @@ private fun PlaylistSongItem(
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent)
     )
+
+    if (showConfirmDelete) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDelete = false },
+            containerColor = MaterialTheme.colorScheme.background,
+            title   = { Text("Delete song?") },
+            text    = {
+                Text("\"${song.title}\" will be permanently removed from your library and its file deleted.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = { onDelete(); showConfirmDelete = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showConfirmDelete = false }) { Text("Cancel") }
+            }
+        )
+    }
 }
