@@ -63,11 +63,16 @@ fun PlaylistDetailScreen(
     val isZipping       by viewModel.isZipping.collectAsState()
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
     var showShareMethodDialog     by remember { mutableStateOf(false) }
-    // Confirm-before-remove dialogs: one for the batch "remove selected" action,
-    // one for removing a single song via its row menu. The single one needs to
-    // remember which song the user tapped so the dialog can name it and the
-    // confirm handler knows what to remove.
+    // The chooser that pops up when the user taps the trash icon while songs
+    // are selected: offers "Remove from Playlist" (keeps the songs in the
+    // library) vs "Delete" (permanently removes the files from the library).
+    // Each choice opens its own confirm dialog below.
+    var showManageSelectedDialog  by remember { mutableStateOf(false) }
     var showConfirmRemoveSelected by remember { mutableStateOf(false) }
+    var showConfirmDeleteSelected by remember { mutableStateOf(false) }
+    // Confirm-before-remove dialog for removing a single song via its row
+    // menu. Remembers which song the user tapped so the dialog can name it
+    // and the confirm handler knows what to remove.
     var showConfirmRemoveSingle  by remember { mutableStateOf(false) }
     var pendingRemoveSong        by remember { mutableStateOf<SongEntity?>(null) }
     val canReorder      = playlistSortMode == SongSortMode.CUSTOM
@@ -99,6 +104,9 @@ fun PlaylistDetailScreen(
     // screen. The "add selected to playlist" dialog is handled next.
     BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
     BackHandler(enabled = showShareMethodDialog) { showShareMethodDialog = false }
+    BackHandler(enabled = showManageSelectedDialog) { showManageSelectedDialog = false }
+    BackHandler(enabled = showConfirmRemoveSelected) { showConfirmRemoveSelected = false }
+    BackHandler(enabled = showConfirmDeleteSelected) { showConfirmDeleteSelected = false }
     BackHandler(enabled = inSelection) { viewModel.clearPlaylistSelection() }
     BackHandler(enabled = isSearching && !inSelection) {
         isSearching = false
@@ -144,9 +152,9 @@ fun PlaylistDetailScreen(
                         IconButton(onClick = { viewModel.selectAllPlaylist() }) {
                             Icon(Icons.Default.SelectAll, "Select all")
                         }
-                        IconButton(onClick = { showConfirmRemoveSelected = true }) {
+                        IconButton(onClick = { showManageSelectedDialog = true }) {
                             Icon(
-                                Icons.Default.DeleteSweep, "Remove selected from playlist",
+                                Icons.Default.DeleteSweep, "Manage selected songs",
                                 tint = MaterialTheme.colorScheme.error
                             )
                         }
@@ -569,6 +577,68 @@ fun PlaylistDetailScreen(
         )
     }
 
+    // Chooser shown when the trash icon is tapped in selection mode. Mirrors
+    // the share-method chooser above so the two destructive batch actions
+    // (remove from this playlist vs delete from library) are presented the
+    // same way. Each row opens its own confirm dialog below.
+    if (showManageSelectedDialog) {
+        AlertDialog(
+            onDismissRequest = { showManageSelectedDialog = false },
+            containerColor = MaterialTheme.colorScheme.background,
+            title   = { Text("Manage selected") },
+            text    = {
+                Column {
+                    Text(
+                        "Choose what to do with the ${selectedIds.size} selected " +
+                        "song${if (selectedIds.size == 1) "" else "s"}."
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    ListItem(
+                        modifier = Modifier.clickable {
+                            showManageSelectedDialog = false
+                            showConfirmRemoveSelected = true
+                        },
+                        headlineContent = {
+                            Text("Remove from Playlist",
+                                color = MaterialTheme.colorScheme.primary)
+                        },
+                        supportingContent = {
+                            Text("Take the songs off this playlist; they stay in your library",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        },
+                        leadingContent = {
+                            Icon(Icons.Default.RemoveCircleOutline, null,
+                                tint = MaterialTheme.colorScheme.primary)
+                        }
+                    )
+                    HorizontalDivider()
+                    ListItem(
+                        modifier = Modifier.clickable {
+                            showManageSelectedDialog = false
+                            showConfirmDeleteSelected = true
+                        },
+                        headlineContent = {
+                            Text("Delete",
+                                color = MaterialTheme.colorScheme.error)
+                        },
+                        supportingContent = {
+                            Text("Permanently remove the songs and their files from your library",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        },
+                        leadingContent = {
+                            Icon(Icons.Default.Delete, null,
+                                tint = MaterialTheme.colorScheme.error)
+                        }
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showManageSelectedDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     if (showConfirmRemoveSelected) {
         AlertDialog(
             onDismissRequest = { showConfirmRemoveSelected = false },
@@ -594,6 +664,35 @@ fun PlaylistDetailScreen(
             },
             dismissButton = {
                 OutlinedButton(onClick = { showConfirmRemoveSelected = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showConfirmDeleteSelected) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDeleteSelected = false },
+            containerColor = MaterialTheme.colorScheme.background,
+            title   = { Text("Delete selected songs?") },
+            text    = {
+                Text(
+                    "${selectedIds.size} song${if (selectedIds.size == 1) "" else "s"} will be " +
+                    "permanently removed from your library and their files deleted."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deletePlaylistSelected()
+                        showConfirmDeleteSelected = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showConfirmDeleteSelected = false }) { Text("Cancel") }
             }
         )
     }

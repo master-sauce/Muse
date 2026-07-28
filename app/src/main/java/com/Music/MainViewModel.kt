@@ -935,6 +935,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Permanently delete every song selected on the Playlist Detail screen from
+     * the library (removing their files and playlist cross-refs), then clear
+     * the playlist selection. Mirrors [deleteSelected] but operates on the
+     * playlist-detail selection set instead of the library's.
+     */
+    fun deletePlaylistSelected() {
+        val ids = _playlistSelectedIds.value
+        if (ids.isEmpty()) return
+        clearPlaylistSelection()
+        viewModelScope.launch {
+            controller?.let { player ->
+                val toRemove = mutableListOf<Int>()
+                for (i in 0 until player.mediaItemCount) if (player.getMediaItemAt(i).mediaId in ids) toRemove.add(i)
+                toRemove.sortedDescending().forEach { player.removeMediaItem(it) }
+            }
+            repository.deleteSongs(ids)
+        }
+    }
+
     /** Add every selected song to the given playlist, keeping the selection active. */
     fun addPlaylistSelectedToPlaylist(targetPlaylistId: Long) {
         val ids = _playlistSelectedIds.value
