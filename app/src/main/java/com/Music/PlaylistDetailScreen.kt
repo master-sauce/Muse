@@ -600,7 +600,7 @@ fun PlaylistDetailScreen(
                         },
                         headlineContent = {
                             Text("Remove from Playlist",
-                                color = MaterialTheme.colorScheme.primary)
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
                         },
                         supportingContent = {
                             Text("Take the songs off this playlist; they stay in your library",
@@ -608,7 +608,7 @@ fun PlaylistDetailScreen(
                         },
                         leadingContent = {
                             Icon(Icons.Default.RemoveCircleOutline, null,
-                                tint = MaterialTheme.colorScheme.primary)
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
                         }
                     )
                     HorizontalDivider()
@@ -864,8 +864,12 @@ private fun PlaylistSongItem(
                             }
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text("Remove from Playlist", color = MaterialTheme.colorScheme.error) },
-                                leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null, tint = MaterialTheme.colorScheme.error) },
+                                text = { Text("Remove from Playlist",
+                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.RemoveCircleOutline, null,
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
+                                },
                                 onClick = { onRemove(); showMenu = false }
                             )
                             DropdownMenuItem(
