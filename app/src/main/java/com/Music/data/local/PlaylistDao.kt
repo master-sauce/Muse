@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface PlaylistDao {
     @Transaction
-    @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
+    @Query("SELECT * FROM playlists ORDER BY sortOrder ASC")
     fun getPlaylistsWithSongs(): Flow<List<PlaylistWithSongs>>
 
     @Query("""
@@ -55,4 +55,20 @@ interface PlaylistDao {
      */
     @Query("SELECT position FROM playlist_songs WHERE playlistId = :playlistId AND songId = :songId")
     suspend fun getSongPosition(playlistId: Long, songId: String): Int?
+
+    // ── Playlists-tab manual drag order ──────────────────────────────────────
+    // Mirrors the songs.sortOrder helpers, but for the playlists themselves so
+    // the user can drag-and-reorder their playlists in the Playlists tab.
+
+    /** Persist a single playlist's manual order index (0 = top of the list). */
+    @Query("UPDATE playlists SET sortOrder = :order WHERE id = :id")
+    suspend fun updatePlaylistOrder(id: Long, order: Int)
+
+    /**
+     * Bump every playlist's sortOrder up by 1. Used to make room at the top
+     * (position 0) when a new playlist is created so it lands at the head of
+     * the Playlists list, matching how new songs land at the top of the library.
+     */
+    @Query("UPDATE playlists SET sortOrder = sortOrder + 1")
+    suspend fun shiftAllPlaylistOrders()
 }

@@ -47,7 +47,7 @@ class MusicRepository(
         processId: String = taskId,
         onTitleRetrieved: (String) -> Unit = {},
         onProgress: (Float) -> Unit
-    ) = withContext(Dispatchers.IO) {
+    ): String = withContext(Dispatchers.IO) {
         var finalUrl = url
         var metaThumbnail: String? = null
         var metaArtist: String? = null
@@ -73,7 +73,10 @@ class MusicRepository(
         // Deeper check: see if we already have this song by its unique provider ID (e.g. YouTube video ID)
         val infoId = info?.id
         if (infoId != null && songDao.getSongById(infoId) != null) {
-            throw Exception("This song is already in your library")
+            // Song already exists — return its id so the caller can still add it
+            // to the chosen auto-add playlist (the addSongToPlaylist call IGNOREs
+            // duplicates, so this is a no-op if it's already a member).
+            return@withContext infoId
         }
 
         info?.title?.let { onTitleRetrieved(it) }
@@ -83,9 +86,10 @@ class MusicRepository(
         // Insert at the TOP of the user's custom order: bump every existing
         // song's sortOrder up by 1, then place this one at position 0 so it
         // shows first in CUSTOM mode. createdAt still drives Newest / Oldest.
+        val songId = info?.id ?: System.currentTimeMillis().toString()
         songDao.shiftAllSortOrders()
         songDao.insertSong(SongEntity(
-            id           = info?.id ?: System.currentTimeMillis().toString(),
+            id           = songId,
             title        = info?.title ?: file.nameWithoutExtension,
             artist       = metaArtist ?: info?.uploader ?: "Unknown Artist",
             filePath     = file.absolutePath,
@@ -95,6 +99,7 @@ class MusicRepository(
             sortOrder    = 0,
             createdAt    = System.currentTimeMillis()
         ))
+        songId
     }
 
     // ── Playlist import ────────────────────────────────────────────────────
@@ -344,8 +349,15 @@ class MusicRepository(
     }
 
     // ── Playlist ops ────────────────────────────────────────────────────────
-    suspend fun createPlaylist(name: String): Long =
-        playlistDao.createPlaylist(PlaylistEntity(name = name))
+    suspend fun createPlaylist(name: String): Long = withContext(Dispatchers.IO) {
+        // Insert at the TOP of the Playlists list: bump every existing
+        // playlist's sortOrder up by one, then place this one at position 0 so
+        // a freshly created playlist shows first in the Playlists tab (mirrors
+        // how new songs land at the top of the library). createdAt still
+        // records the real creation time for any future ordering needs.
+        playlistDao.shiftAllPlaylistOrders()
+        playlistDao.createPlaylist(PlaylistEntity(name = name, sortOrder = 0))
+    }
 
     suspend fun deletePlaylist(playlist: PlaylistEntity) =
         playlistDao.deletePlaylist(playlist)
@@ -373,6 +385,15 @@ class MusicRepository(
         }
     }
 
+    /**
+     * Persist the user's manual drag order for the Playlists tab. Writes each
+     * playlist's `sortOrder` to match its on-screen index (0 = top). Called
+     * once after a drag completes (see [com.Music.MainViewModel.endPlaylistListDrag]).
+     */
+    suspend fun updatePlaylistListOrder(playlists: List<PlaylistEntity>) = withContext(Dispatchers.IO) {
+        playlists.forEachIndexed { index, pl -> playlistDao.updatePlaylistOrder(pl.id, index) }
+    }
+
     // ── Last played song ───────────────────────────────────────────────────
     fun saveLastPlayed(songId: String, position: Long) {
         prefs.edit()
@@ -384,4 +405,9 @@ class MusicRepository(
     fun getLastPlayedSongId(): String? = prefs.getString("last_song_id", null)
     fun getLastPlayedPosition(): Long = prefs.getLong("last_position", 0L)
     suspend fun getSongById(id: String) = songDao.getSongById(id)
+
+    /** Look up a song by its source URL (null if not in the library). */
+    suspend fun getSongByUrl(url: String): SongEntity? = withContext(Dispatchers.IO) {
+        songDao.getSongByUrl(url)
+    }
 }

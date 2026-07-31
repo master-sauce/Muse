@@ -120,6 +120,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val playlistFetch: StateFlow<PlaylistFetchState> = DownloadState.playlistFetch
     val batchDownload: StateFlow<BatchDownloadState> = DownloadState.batchDownload
 
+    // ── Auto-add-to-playlist preference ─────────────────────────────────────
+    // When non-null, every newly downloaded song (single link or batch/playlist
+    // import) is automatically added to the playlist with this id. Delegated to
+    // the app-scoped DownloadState so it applies even to downloads that outlive
+    // this ViewModel. null = feature off.
+    val autoAddPlaylistId: StateFlow<Long?> = DownloadState.autoAddPlaylistId
+
+    /** Set the playlist newly downloaded songs should be auto-added to (null = off). */
+    fun setAutoAddPlaylistId(id: Long?) = DownloadState.setAutoAddPlaylistId(id)
+
     /** Errors from the download engine (surfaced as toasts by the UI). */
     val downloadErrorEvents = DownloadState.errorEvents
 
@@ -286,7 +296,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         viewModelScope.launch {
-            repository.playlistsWithSongs.collect { _playlists.value = it }
+            repository.playlistsWithSongs.collect {
+                // Don't let the DB emission override the live drag-reorder while
+                // the user is still arranging playlists — the in-memory list is
+                // the source of truth mid-drag and gets written back on drop.
+                if (!isDragInProgress) {
+                    _playlists.value = it
+                }
+            }
         }
         viewModelScope.launch {
             _currentSong.collect { song ->
@@ -889,6 +906,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         viewModelScope.launch {
             repository.updatePlaylistSongOrder(playlistId, _playlistSongs.value)
+            isDragInProgress = false
+        }
+    }
+
+    // ── Playlists-tab drag (reorder the playlists themselves) ───────────────
+    // Reuses the same `isDragInProgress` flag as the song/playlist-song drags.
+    // Since the Playlists tab is always shown in manual order (sorted by
+    // `playlists.sortOrder ASC`), there's no sort-mode gate here — any reorder
+    // is the user's intended custom order and gets persisted on drop.
+    fun movePlaylistListItem(fromIndex: Int, toIndex: Int) {
+        val list = _playlists.value.toMutableList()
+        if (fromIndex !in list.indices || toIndex !in 0..list.size) return
+        val item = list.removeAt(fromIndex)
+        list.add(toIndex, item)
+        _playlists.value = list
+    }
+
+    /** Persist the current on-screen playlist order and re-open the collector. */
+    fun endPlaylistListDrag() {
+        viewModelScope.launch {
+            repository.updatePlaylistListOrder(_playlists.value.map { it.playlist })
             isDragInProgress = false
         }
     }

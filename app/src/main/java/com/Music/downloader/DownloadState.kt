@@ -98,6 +98,65 @@ object DownloadState {
     private val _batchDownload = MutableStateFlow(BatchDownloadState())
     val batchDownload: StateFlow<BatchDownloadState> = _batchDownload.asStateFlow()
 
+    // ── Auto-add-to-playlist preference ─────────────────────────────────────
+    // When non-null, every successfully downloaded song (single link AND each
+    // song in a batch / playlist / links-file import) is automatically added to
+    // the playlist with this id. Persisted in SharedPreferences so the choice
+    // survives restarts. null means the feature is off. The id is read freshly
+    // from prefs on each download (rather than cached in a field) so a change
+    // made from the UI takes effect immediately without needing a re-init.
+    private val _autoAddPlaylistId = MutableStateFlow<Long?>(loadAutoAddPlaylistId())
+    /** Flow of the current auto-add playlist id (null = feature off). */
+    val autoAddPlaylistId: StateFlow<Long?> = _autoAddPlaylistId.asStateFlow()
+
+    private fun prefs() =
+        appContext.getSharedPreferences("muse_prefs", Context.MODE_PRIVATE)
+
+    private fun loadAutoAddPlaylistId(): Long? {
+        // Uses the same "muse_prefs" file the ViewModel uses for other prefs.
+        // Read defensively — init() may not have run yet when this property is
+        // first accessed during object construction, so we lazily read on first
+        // real use instead of in the field initializer.
+        if (!this::appContext.isInitialized) return null
+        val raw = prefs().getString("auto_add_playlist_id", null) ?: return null
+        return raw.toLongOrNull()
+    }
+
+    /**
+     * Set the playlist newly downloaded songs should be auto-added to.
+     * Pass null to turn the feature off. Persisted immediately so it survives
+     * restarts and applies to downloads started by the app-scoped engine even
+     * after the Activity is destroyed.
+     */
+    fun setAutoAddPlaylistId(id: Long?) {
+        _autoAddPlaylistId.value = id
+        prefs().edit().putString("auto_add_playlist_id", id?.toString()).apply()
+    }
+
+    /** The current auto-add playlist id (re-read from prefs for safety). */
+    fun currentAutoAddPlaylistId(): Long? = loadAutoAddPlaylistId()
+
+    /**
+     * Add [songId] to the user's chosen auto-add playlist (if the feature is on
+     * and the playlist still exists). Safe to call after every successful
+     * download — [MusicRepository.addSongToPlaylist] IGNOREs duplicates, so a
+     * song that's already a member is a no-op. Silently skips if the playlist
+     * was deleted between setting the pref and the download finishing.
+     */
+    private suspend fun applyAutoAddPlaylist(songId: String) {
+        val playlistId = currentAutoAddPlaylistId() ?: return
+        val playlist = repository.getPlaylistById(playlistId) ?: run {
+            // Playlist was deleted since the pref was set — clear it so we
+            // don't keep trying to add to a non-existent playlist forever.
+            setAutoAddPlaylistId(null)
+            return
+        }
+        // `playlist` is read but only its existence matters; addSongToPlaylist
+        // handles the actual insert. No-op if already a member.
+        @Suppress("UNUSED_VARIABLE") val exists = playlist
+        repository.addSongToPlaylist(playlistId, songId)
+    }
+
     /**
      * `true` while any download (single-song or batch) is in progress.
      * Derived from both [_activeDownloads] and [_batchDownload] so batch
@@ -184,7 +243,8 @@ object DownloadState {
         )
             .addMigrations(
                 com.Music.data.local.AppDatabase.MIGRATION_1_2,
-                com.Music.data.local.AppDatabase.MIGRATION_2_3
+                com.Music.data.local.AppDatabase.MIGRATION_2_3,
+                com.Music.data.local.AppDatabase.MIGRATION_3_4
             )
             .addCallback(object : androidx.room.RoomDatabase.Callback() {
                 override fun onOpen(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -234,7 +294,7 @@ object DownloadState {
                 _activeDownloads.update { it + (taskId to DownloadTask(taskId, singleUrl)) }
 
                 try {
-                    repository.downloadAndSave(
+                    val songId = repository.downloadAndSave(
                         url = singleUrl,
                         taskId = taskId,
                         onTitleRetrieved = { title ->
@@ -248,6 +308,9 @@ object DownloadState {
                             }
                         }
                     )
+                    // Auto-add to the user's chosen playlist (no-op if the
+                    // feature is off or the song is already a member).
+                    if (songId.isNotBlank()) applyAutoAddPlaylist(songId)
                 } catch (e: Exception) {
                     _errorEvents.emit("Download failed: ${e.localizedMessage}")
                 } finally {
@@ -356,6 +419,12 @@ object DownloadState {
                     if (batchCancelFlag) break
 
                     if (repository.isSongDownloaded(entry.url)) {
+                        // Already in the library — still add it to the auto-add
+                        // playlist (if on) so importing a playlist collects ALL
+                        // of its songs, including ones the user already had.
+                        // addSongToPlaylist IGNOREs duplicates, so this is a
+                        // no-op if it's already a member.
+                        repository.getSongByUrl(entry.url)?.id?.let { applyAutoAddPlaylist(it) }
                         completed++
                         _batchDownload.value = _batchDownload.value.copy(completed = completed)
                         continue
@@ -368,7 +437,7 @@ object DownloadState {
                     )
 
                     try {
-                        repository.downloadAndSave(
+                        val songId = repository.downloadAndSave(
                             url = entry.url,
                             taskId = processId,
                             processId = processId,
@@ -376,6 +445,9 @@ object DownloadState {
                                 _batchDownload.value = _batchDownload.value.copy(currentProgress = progress)
                             }
                         )
+                        // Auto-add to the user's chosen playlist (no-op if the
+                        // feature is off or the song is already a member).
+                        if (songId.isNotBlank()) applyAutoAddPlaylist(songId)
                         completed++
                         _batchDownload.value = _batchDownload.value.copy(
                             completed = completed, currentProgress = 100f

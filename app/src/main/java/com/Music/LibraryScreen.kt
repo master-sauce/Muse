@@ -82,6 +82,7 @@ fun LibraryScreen(
     val queue           by viewModel.queue.collectAsState()
     val playlistFetch   by viewModel.playlistFetch.collectAsState()
     val batchDownload   by viewModel.batchDownload.collectAsState()
+    val autoAddPlaylistId by viewModel.autoAddPlaylistId.collectAsState()
 
     // Persist the active tab across navigation (e.g. returning from a
     // playlist detail screen lands back on the Playlists tab) and across
@@ -457,7 +458,10 @@ fun LibraryScreen(
                         onPlaylistClick  = { pl -> onNavigateToPlaylist(pl.id) },
                         onDeletePlaylist = { pl -> viewModel.deletePlaylist(pl) },
                         onRenamePlaylist = { pl, newName -> viewModel.renamePlaylist(pl.id, newName) },
-                        onCreatePlaylist = { showNewPlaylistDialog = true }
+                        onCreatePlaylist = { showNewPlaylistDialog = true },
+                        onMove           = { from, to -> viewModel.movePlaylistListItem(from, to) },
+                        onStartDrag      = { viewModel.startDrag() },
+                        onEndDrag        = { viewModel.endPlaylistListDrag() }
                     )
                 }
             }
@@ -470,11 +474,14 @@ fun LibraryScreen(
                 contentWindowInsets = { WindowInsets.ime.union(WindowInsets.navigationBars) }
             ) {
                 AddMusicSheet(
-                    isDownloading    = isDownloading,
-                    activeDownloads  = activeDownloads,
-                    isImporting      = isImporting,
-                    playlistFetch    = playlistFetch,
-                    batchDownload    = batchDownload,
+                    isDownloading       = isDownloading,
+                    activeDownloads     = activeDownloads,
+                    isImporting         = isImporting,
+                    playlistFetch       = playlistFetch,
+                    batchDownload       = batchDownload,
+                    playlists           = playlists,
+                    autoAddPlaylistId   = autoAddPlaylistId,
+                    onSetAutoAddPlaylistId = { id -> viewModel.setAutoAddPlaylistId(id) },
                     onDownload       = { url -> viewModel.downloadSong(url); showAdd = false },
                     onCancelDownload = { taskId -> viewModel.cancelDownload(taskId) },
                     onPickFile       = {
@@ -1093,13 +1100,17 @@ fun SongListItem(
 
 // ─── Playlists tab ────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlaylistsTab(
     playlists: List<PlaylistWithSongs>,
     onPlaylistClick: (PlaylistEntity) -> Unit,
     onDeletePlaylist: (PlaylistEntity) -> Unit,
     onRenamePlaylist: (PlaylistEntity, String) -> Unit,
-    onCreatePlaylist: () -> Unit
+    onCreatePlaylist: () -> Unit,
+    onMove: (Int, Int) -> Unit,
+    onStartDrag: () -> Unit,
+    onEndDrag: () -> Unit
 ) {
     if (playlists.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1119,7 +1130,15 @@ private fun PlaylistsTab(
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
+    val lazyListState = rememberLazyListState()
+    val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        onMove(from.index, to.index)
+    }
+    LazyColumn(
+        state = lazyListState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
         item {
             TextButton(
                 onClick  = onCreatePlaylist,
@@ -1131,12 +1150,19 @@ private fun PlaylistsTab(
             }
         }
         items(playlists, key = { it.playlist.id }) { pw ->
-            PlaylistItem(
-                pw,
-                onClick  = { onPlaylistClick(pw.playlist) },
-                onDelete = { onDeletePlaylist(pw.playlist) },
-                onRename = { newName -> onRenamePlaylist(pw.playlist, newName) }
-            )
+            ReorderableItem(reorderableState, key = pw.playlist.id) { isDragging ->
+                PlaylistItem(
+                    pw,
+                    isDragging = isDragging,
+                    dragHandleModifier = Modifier.draggableHandle(
+                        onDragStarted = { onStartDrag() },
+                        onDragStopped = { onEndDrag() }
+                    ),
+                    onClick  = { onPlaylistClick(pw.playlist) },
+                    onDelete = { onDeletePlaylist(pw.playlist) },
+                    onRename = { newName -> onRenamePlaylist(pw.playlist, newName) }
+                )
+            }
         }
     }
 }
@@ -1145,14 +1171,20 @@ private fun PlaylistsTab(
 @Composable
 private fun PlaylistItem(
     playlistWithSongs: PlaylistWithSongs,
+    isDragging: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onRename: (String) -> Unit
 ) {
     var showConfirm by remember { mutableStateOf(false) }
     var showRename  by remember { mutableStateOf(false) }
+    val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "playlistDragElev")
     ListItem(
-        modifier = Modifier.combinedClickable(onClick = onClick, onLongClick = {}),
+        modifier = Modifier
+            .shadow(elevation, RoundedCornerShape(12.dp))
+            .background(if (isDragging) MaterialTheme.colorScheme.surface else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = {}),
         headlineContent = {
             Text(playlistWithSongs.playlist.name, fontWeight = FontWeight.SemiBold)
         },
@@ -1186,6 +1218,12 @@ private fun PlaylistItem(
                     Icon(Icons.Default.Delete, "Delete playlist",
                         tint = MaterialTheme.colorScheme.error)
                 }
+                Icon(
+                    Icons.Default.DragHandle,
+                    contentDescription = "Drag to reorder playlist",
+                    modifier = dragHandleModifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                )
             }
         }
     )
@@ -1606,6 +1644,101 @@ fun EmptyLibrary(onAdd: () -> Unit) {
 
 // ─── Add music sheet ──────────────────────────────────────────────────────────
 
+// ─── Auto-add-to-playlist selector (shown at top of the Add Music sheet) ───────
+
+@Composable
+private fun AutoAddPlaylistSelector(
+    playlists: List<PlaylistWithSongs>,
+    autoAddPlaylistId: Long?,
+    selectedPlaylistName: String?,
+    onSelect: (Long?) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    // If the chosen playlist was deleted out-of-band, the pref is stale —
+    // show "Off" until the user picks again. DownloadState also clears the
+    // pref on the next download in that case.
+    val currentLabel = selectedPlaylistName ?: "Off"
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.PlaylistAdd,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Auto-add downloads to",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    currentLabel,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Box {
+                TextButton(onClick = { expanded = true }) {
+                    Text("Change")
+                    Icon(Icons.Default.ArrowDropDown, null)
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    // "Off" option disables the feature.
+                    DropdownMenuItem(
+                        text = { Text("Off") },
+                        leadingIcon = {
+                            if (autoAddPlaylistId == null) {
+                                Icon(Icons.Default.Check, null)
+                            }
+                        },
+                        onClick = {
+                            onSelect(null)
+                            expanded = false
+                        }
+                    )
+                    if (playlists.isNotEmpty()) {
+                        HorizontalDivider()
+                        playlists.forEach { pw ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "${pw.playlist.name}  (${pw.songs.size})",
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                leadingIcon = {
+                                    if (pw.playlist.id == autoAddPlaylistId) {
+                                        Icon(Icons.Default.Check, null)
+                                    }
+                                },
+                                onClick = {
+                                    onSelect(pw.playlist.id)
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun AddMusicSheet(
     isDownloading: Boolean,
@@ -1613,6 +1746,9 @@ fun AddMusicSheet(
     isImporting: Boolean,
     playlistFetch: PlaylistFetchState,
     batchDownload: BatchDownloadState,
+    playlists: List<PlaylistWithSongs>,
+    autoAddPlaylistId: Long?,
+    onSetAutoAddPlaylistId: (Long?) -> Unit,
     onDownload: (String) -> Unit,
     onCancelDownload: (String) -> Unit,
     onPickFile: () -> Unit,
@@ -1630,6 +1766,10 @@ fun AddMusicSheet(
     var playlistUrlText by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
 
+    // The name of the currently-chosen auto-add playlist (if any), looked up
+    // from the live playlists list so it stays correct after renames/deletes.
+    val selectedPlaylistName = playlists.firstOrNull { it.playlist.id == autoAddPlaylistId }?.playlist?.name
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -1645,7 +1785,20 @@ fun AddMusicSheet(
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 16.dp)
         )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
+
+        // ── Auto-add-to-playlist selector ──────────────────────────────────
+        // When set, every downloaded song (single link or whole playlist
+        // import) is automatically added to the chosen playlist. "Off" disables
+        // it. The choice persists across downloads and app restarts.
+        AutoAddPlaylistSelector(
+            playlists           = playlists,
+            autoAddPlaylistId   = autoAddPlaylistId,
+            selectedPlaylistName = selectedPlaylistName,
+            onSelect            = onSetAutoAddPlaylistId
+        )
+
+        Spacer(Modifier.height(12.dp))
         TabRow(selectedTabIndex = tab) {
             listOf("Link", "List", "File", "Folder").forEachIndexed { i, label ->
                 Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })

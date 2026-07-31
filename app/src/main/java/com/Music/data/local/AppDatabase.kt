@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [SongEntity::class, PlaylistEntity::class, PlaylistSongCrossRef::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -51,6 +51,21 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE songs ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE songs SET createdAt = rowid")
+            }
+        }
+
+        /**
+         * Adds the `sortOrder` column to `playlists` so the Playlists tab can be
+         * manually drag-reordered by the user. Pre-existing rows get
+         * `sortOrder = rowid` (a monotonically-increasing proxy for insertion
+         * order) so the relative creation order of already-made playlists
+         * survives the migration — they simply line up in the order they were
+         * created, oldest first, until the user drags them around.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlists ADD COLUMN sortOrder INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE playlists SET sortOrder = rowid")
             }
         }
     }
