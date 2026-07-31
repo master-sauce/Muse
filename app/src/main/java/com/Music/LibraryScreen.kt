@@ -1132,36 +1132,42 @@ private fun PlaylistsTab(
     }
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        // The LazyColumn below contains ONLY playlist items (the "New Playlist"
+        // button lives above it), so its item indices line up 1:1 with the
+        // playlists list passed to onMove — no header offset to subtract.
         onMove(from.index, to.index)
     }
-    LazyColumn(
-        state = lazyListState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp)
-    ) {
-        item {
-            TextButton(
-                onClick  = onCreatePlaylist,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-            ) {
-                Icon(Icons.Default.Add, null)
-                Spacer(Modifier.width(8.dp))
-                Text("New Playlist")
-            }
+    Column(Modifier.fillMaxSize()) {
+        // "New Playlist" button lives OUTSIDE the LazyColumn so it doesn't
+        // occupy index 0 and skew the reorder indices (which would otherwise
+        // be off by one and corrupt the drag order).
+        TextButton(
+            onClick  = onCreatePlaylist,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+        ) {
+            Icon(Icons.Default.Add, null)
+            Spacer(Modifier.width(8.dp))
+            Text("New Playlist")
         }
-        items(playlists, key = { it.playlist.id }) { pw ->
-            ReorderableItem(reorderableState, key = pw.playlist.id) { isDragging ->
-                PlaylistItem(
-                    pw,
-                    isDragging = isDragging,
-                    dragHandleModifier = Modifier.draggableHandle(
-                        onDragStarted = { onStartDrag() },
-                        onDragStopped = { onEndDrag() }
-                    ),
-                    onClick  = { onPlaylistClick(pw.playlist) },
-                    onDelete = { onDeletePlaylist(pw.playlist) },
-                    onRename = { newName -> onRenamePlaylist(pw.playlist, newName) }
-                )
+        LazyColumn(
+            state = lazyListState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+            items(playlists, key = { it.playlist.id }) { pw ->
+                ReorderableItem(reorderableState, key = pw.playlist.id) { isDragging ->
+                    PlaylistItem(
+                        pw,
+                        isDragging = isDragging,
+                        dragHandleModifier = Modifier.draggableHandle(
+                            onDragStarted = { onStartDrag() },
+                            onDragStopped = { onEndDrag() }
+                        ),
+                        onClick  = { onPlaylistClick(pw.playlist) },
+                        onDelete = { onDeletePlaylist(pw.playlist) },
+                        onRename = { newName -> onRenamePlaylist(pw.playlist, newName) }
+                    )
+                }
             }
         }
     }
