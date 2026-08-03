@@ -67,6 +67,7 @@ fun PlayerContent(
     val repeatMode  by viewModel.repeatMode.collectAsState()
     val lyricsState by viewModel.lyrics.collectAsState()
     val exoPlayer   by viewModel.exoPlayer.collectAsState()
+    val playlists   by viewModel.playlists.collectAsState()
 
     val isVideoFile = currentSong?.isVideo() == true
     var videoMode by remember(currentSong?.id) { mutableStateOf(false) }
@@ -182,6 +183,12 @@ fun PlayerContent(
             modifier = Modifier.fillMaxSize(),
             color    = MaterialTheme.colorScheme.background
         ) {
+            // Overflow (three-dots) menu + "Add to Playlist" dialog state.
+            // Declared here (Surface scope) so the dialog, rendered as a
+            // sibling of the root Box below, can read/write them too.
+            var showOverflowMenu by remember { mutableStateOf(false) }
+            var showAddToPlaylist by remember { mutableStateOf(false) }
+
             // A single vertical-drag handle on the root Box lets the user
             // drag down from anywhere in the player to collapse it (like
             // YouTube Music). It uses the Initial pointer pass and only
@@ -232,13 +239,62 @@ fun PlayerContent(
                         }
                         Text("Now Playing", style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        IconButton(onClick = onNavigateToLyrics) {
-                            Icon(Icons.Default.Lyrics, "Lyrics",
-                                tint = when (lyricsState) {
-                                    is LyricsState.Synced, is LyricsState.Plain ->
-                                        MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                })
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = onNavigateToLyrics) {
+                                Icon(Icons.Default.Lyrics, "Lyrics",
+                                    tint = when (lyricsState) {
+                                        is LyricsState.Synced, is LyricsState.Plain ->
+                                            MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    })
+                            }
+                            // Three-dots overflow: Share file / Share link /
+                            // Add to Playlist for the currently-playing song.
+                            // Mirrors the per-song menu in the Library list.
+                            Box {
+                                IconButton(
+                                    onClick = { showOverflowMenu = true },
+                                    enabled = currentSong != null
+                                ) {
+                                    Icon(
+                                        Icons.Default.MoreVert, "More options",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded         = showOverflowMenu,
+                                    onDismissRequest = { showOverflowMenu = false }
+                                ) {
+                                    val song = currentSong
+                                    DropdownMenuItem(
+                                        text        = { Text("Add to Playlist") },
+                                        leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
+                                        enabled     = playlists.isNotEmpty(),
+                                        onClick     = {
+                                            showOverflowMenu = false
+                                            showAddToPlaylist = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text        = { Text("Share file") },
+                                        leadingIcon = { Icon(Icons.Default.Share, null) },
+                                        onClick     = {
+                                            showOverflowMenu = false
+                                            if (song != null) shareSong(context, song)
+                                        }
+                                    )
+                                    if (song != null && song.sourceUrl.startsWith("http")) {
+                                        DropdownMenuItem(
+                                            text        = { Text("Share link") },
+                                            leadingIcon = { Icon(Icons.Default.Link, null) },
+                                            onClick     = {
+                                                showOverflowMenu = false
+                                                viewModel.shareSongAsLink(song)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -493,6 +549,20 @@ fun PlayerContent(
 
                     Spacer(Modifier.weight(0.4f))
                 }
+            }
+
+            // ── Add to Playlist dialog ─────────────────────────────────────
+            // Spawned from the overflow menu above. Same dialog the Library
+            // list rows use; lives in com.Music.LibraryScreen (same package).
+            if (showAddToPlaylist) {
+                AddToPlaylistDialog(
+                    playlists = playlists.map { it.playlist },
+                    onSelect  = { plId ->
+                        currentSong?.let { viewModel.addSongToPlaylist(plId, it.id) }
+                        showAddToPlaylist = false
+                    },
+                    onDismiss = { showAddToPlaylist = false }
+                )
             }
         }
     }
