@@ -13,8 +13,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,6 +48,8 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.Music.data.local.isVideo
 import com.Music.data.remote.LyricsState
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(UnstableApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -220,8 +224,12 @@ fun PlayerContent(
             // DOWN-only: the big player collapses on a downward swipe, but an
             // upward swipe is left free for the album art to use as a
             // swipe-up-to-reveal-queue gesture (see the artwork Box below).
+            // Disabled while the "Up Next" queue panel is open so that dragging
+            // down inside the panel scrolls the list (and reorders via the
+            // drag handles) instead of collapsing the player. The panel is
+            // dismissed via its close button, tapping the artwork, or back.
             val rootDragModifier =
-                if (onDragDown != null && onDragEnd != null && onDragCancel != null) {
+                if (onDragDown != null && onDragEnd != null && onDragCancel != null && !showQueuePanel) {
                     Modifier.verticalDrag(
                         touchSlop, onDragDown, onDragEnd, onDragCancel,
                         dragDirection = VerticalDragDirection.DOWN
@@ -491,6 +499,7 @@ fun PlayerContent(
                                 viewModel.playTimelineItem(item)
                                 showQueuePanel = false
                             },
+                            onMove = { from, to -> viewModel.moveUpNextItem(from, to) },
                             onClose = { showQueuePanel = false },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -668,6 +677,7 @@ fun PlayerContent(
 private fun UpNextPanel(
     items: List<MediaItem>,
     onPlay: (MediaItem) -> Unit,
+    onMove: (fromListIndex: Int, toListIndex: Int) -> Unit,
     modifier: Modifier = Modifier,
     onClose: (() -> Unit)? = null
 ) {
@@ -729,18 +739,30 @@ private fun UpNextPanel(
                     )
                 }
             } else {
-                LazyColumn(Modifier.fillMaxWidth()) {
+                // Drag-to-reorder, mirroring the library's Queue tab: the
+                // reorderable state reports from/to LazyColumn indices, which
+                // line up 1:1 with the items list, so they're forwarded
+                // straight to onMove (and ultimately moveUpNextItem).
+                val lazyListState = rememberLazyListState()
+                val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+                    onMove(from.index, to.index)
+                }
+                LazyColumn(state = lazyListState, modifier = Modifier.fillMaxWidth()) {
                     itemsIndexed(items, key = { _, item -> item.mediaId }) { index, item ->
-                        UpNextRow(
-                            position = index + 1,
-                            item = item,
-                            onClick = { onPlay(item) }
-                        )
-                        if (index < items.lastIndex) {
-                            HorizontalDivider(
-                                Modifier.padding(horizontal = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                        ReorderableItem(reorderableState, key = item.mediaId) { isDragging ->
+                            UpNextRow(
+                                position = index + 1,
+                                item = item,
+                                isDragging = isDragging,
+                                dragHandleModifier = Modifier.draggableHandle(),
+                                onClick = { onPlay(item) }
                             )
+                            if (index < items.lastIndex) {
+                                HorizontalDivider(
+                                    Modifier.padding(horizontal = 16.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                )
+                            }
                         }
                     }
                 }
@@ -750,10 +772,19 @@ private fun UpNextPanel(
 }
 
 @Composable
-private fun UpNextRow(position: Int, item: MediaItem, onClick: () -> Unit) {
+private fun UpNextRow(
+    position: Int,
+    item: MediaItem,
+    isDragging: Boolean,
+    dragHandleModifier: Modifier,
+    onClick: () -> Unit
+) {
+    val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "upNextDragElev")
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
+            .shadow(elevation, RoundedCornerShape(12.dp))
+            .background(if (isDragging) MaterialTheme.colorScheme.surface else Color.Transparent)
             .clickable(onClick = onClick),
         headlineContent = {
             Text(
@@ -792,6 +823,14 @@ private fun UpNextRow(position: Int, item: MediaItem, onClick: () -> Unit) {
                     )
                 }
             }
+        },
+        trailingContent = {
+            Icon(
+                Icons.Default.DragHandle,
+                "Reorder",
+                modifier = dragHandleModifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent)
     )

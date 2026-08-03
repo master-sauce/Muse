@@ -904,6 +904,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Reorder an item within the "Up Next" list shown in the big player's
+     * queue panel. The up-next list reflects the player's forward playback
+     * order (which may differ from raw timeline indices under shuffle), so the
+     * [fromListIndex]/[toListIndex] refer to positions inside [_upNext] rather
+     * than absolute timeline positions. We resolve each list position back to
+     * its real timeline index, then ask the player to move the media item —
+     * the same primitive used by [moveQueueItem].
+     *
+     * The reorderable list library calls [onMove] with the dragging item's
+     * current index and the target item's index and expects a plain
+     * index→index move on the backing data (it tracks the dragged item's
+     * offset itself and applies no extra adjustment), so — like
+     * [moveQueueItem] — we pass the resolved timeline indices straight to
+     * [Player.moveMediaItem] without any ±1 correction.
+     */
+    fun moveUpNextItem(fromListIndex: Int, toListIndex: Int) {
+        val player = controller ?: return
+        val upList = _upNext.value
+        if (fromListIndex !in upList.indices || toListIndex !in upList.indices) return
+        if (fromListIndex == toListIndex) return
+
+        val fromMediaId = upList[fromListIndex].mediaId
+        val toMediaId = upList[toListIndex].mediaId
+
+        // Resolve the two media ids to their real timeline indices.
+        var fromTimelineIndex = -1
+        var toTimelineIndex = -1
+        for (i in 0 until player.mediaItemCount) {
+            val id = player.getMediaItemAt(i).mediaId
+            if (id == fromMediaId) fromTimelineIndex = i
+            if (id == toMediaId) toTimelineIndex = i
+        }
+        if (fromTimelineIndex < 0 || toTimelineIndex < 0) return
+
+        if (fromTimelineIndex != toTimelineIndex && toTimelineIndex in 0 until player.mediaItemCount) {
+            player.moveMediaItem(fromTimelineIndex, toTimelineIndex)
+            updateQueue()
+        }
+    }
+
     fun endDrag() {
         // Keep the drag flag on until the DB write-back finishes. Otherwise the
         // allSongs collector un-gates the instant we flip the flag, emitting a
