@@ -8,9 +8,13 @@ import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -24,14 +28,17 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -40,7 +47,7 @@ import coil.compose.AsyncImage
 import com.Music.data.local.isVideo
 import com.Music.data.remote.LyricsState
 
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun PlayerContent(
     viewModel: MainViewModel,
@@ -68,12 +75,14 @@ fun PlayerContent(
     val lyricsState by viewModel.lyrics.collectAsState()
     val exoPlayer   by viewModel.exoPlayer.collectAsState()
     val playlists   by viewModel.playlists.collectAsState()
+    val upNext      by viewModel.upNext.collectAsState()
 
     val isVideoFile = currentSong?.isVideo() == true
     var videoMode by remember(currentSong?.id) { mutableStateOf(false) }
     var fullScreen by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    val haptic  = LocalHapticFeedback.current
     val activity = context as? androidx.activity.ComponentActivity
 
     // Lock orientation and hide system chrome in fullscreen
@@ -97,14 +106,23 @@ fun PlayerContent(
         }
     }
 
-    // Back handler: exit fullscreen first, then navigate back
+    // "Up Next" queue panel: revealed by long-pressing the album art. Overlays
+    // the art in-place (shares its square footprint) so the song info below is
+    // never pushed/squished. Tapping an item jumps the player to it; tapping
+    // the art again, tapping the panel's close button, or pressing back hides it.
+    var showQueuePanel by remember { mutableStateOf(false) }
+
+    // Back handler: exit fullscreen → hide queue panel → navigate back.
     BackHandler {
-        if (fullScreen) {
-            fullScreen = false
-        } else {
-            onNavigateBack()
+        when {
+            fullScreen     -> fullScreen = false
+            showQueuePanel -> showQueuePanel = false
+            else           -> onNavigateBack()
         }
     }
+    // Separate handler so the panel closes even while fullscreen isn't active
+    // but the user lands on this screen with it open.
+    BackHandler(enabled = showQueuePanel && !fullScreen) { showQueuePanel = false }
 
     // The album art used to scale down to 0.82 when paused. That conflicted
     // with the hero morph (the hero is always at scale 1f, so handing off to
@@ -199,9 +217,15 @@ fun PlayerContent(
             //    own Main pass for horizontal movement, so our Initial-pass
             //    vertical detector never reaches the slop threshold there.
             val touchSlop = with(androidx.compose.ui.platform.LocalDensity.current) { 6.dp.toPx() }
+            // DOWN-only: the big player collapses on a downward swipe, but an
+            // upward swipe is left free for the album art to use as a
+            // swipe-up-to-reveal-queue gesture (see the artwork Box below).
             val rootDragModifier =
                 if (onDragDown != null && onDragEnd != null && onDragCancel != null) {
-                    Modifier.verticalDrag(touchSlop, onDragDown, onDragEnd, onDragCancel)
+                    Modifier.verticalDrag(
+                        touchSlop, onDragDown, onDragEnd, onDragCancel,
+                        dragDirection = VerticalDragDirection.DOWN
+                    )
                 } else Modifier
             Box(
                 Modifier
@@ -362,12 +386,34 @@ fun PlayerContent(
                                 }
                             }
                         } else {
-                            // The root Box already provides a drag-to-collapse
-                            // handle for the whole player (including the art),
-                            // so no separate gesture is needed here.
+                            // The root Box already provides a DOWN-only
+                            // drag-to-collapse handle for the whole player, so
+                            // no separate gesture detector is needed here. The
+                            // artwork itself is long-pressable (via
+                            // combinedClickable below) to toggle the "Up Next"
+                            // queue panel, which drops down below the art.
+                            //
+                            // To keep the song info / seek bar / controls from
+                            // getting squished when the panel opens, the art
+                            // shrinks (animated) while the panel is visible —
+                            // the freed vertical space is taken by the panel.
+                            val artFraction by animateFloatAsState(
+                                targetValue = if (showQueuePanel) 0.62f else 1f,
+                                animationSpec = tween(220),
+                                label = "artFraction"
+                            )
                             Box(
                                 Modifier
-                                    .fillMaxWidth()
+                                    // Shrink the square art to `artFraction` of
+                                    // the available width (and, because it stays
+                                    // square via aspectRatio(1f), the same
+                                    // fraction of its full height) while the
+                                    // queue panel is open — freeing vertical
+                                    // room below it so the song info isn't
+                                    // squished. The parent Column centers
+                                    // horizontally, so the narrower art stays
+                                    // centered as it shrinks.
+                                    .fillMaxWidth(artFraction)
                                     .aspectRatio(1f)
                                     .then(
                                         if (onArtworkPositioned != null) {
@@ -392,7 +438,21 @@ fun PlayerContent(
                                         spotColor    = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                                     )
                                     .clip(RoundedCornerShape(24.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .combinedClickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                        onLongClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            showQueuePanel = !showQueuePanel
+                                        },
+                                        onClick = {
+                                            // Tap the artwork to dismiss the
+                                            // queue panel if it's open (a tap
+                                            // otherwise does nothing).
+                                            if (showQueuePanel) showQueuePanel = false
+                                        }
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (!hideArtwork) {
@@ -410,6 +470,33 @@ fun PlayerContent(
                                 }
                             }
                         }
+                    }
+
+                    // ── "Up Next" queue panel ───────────────────────────────
+                    // Drops down just below the album art when the user
+                    // long-presses it. Lists every upcoming media item in the
+                    // player's timeline (after the current song); tapping one
+                    // jumps the player to it. The art shrinks while this is
+                    // open (see artFraction above) so the song info below keeps
+                    // its room and isn't squished. Grows up to ~34% of the
+                    // player height then scrolls internally for long queues.
+                    AnimatedVisibility(
+                        visible = showQueuePanel,
+                        enter = fadeIn(tween(180)) + expandVertically(tween(220)),
+                        exit  = fadeOut(tween(140)) + shrinkVertically(tween(180))
+                    ) {
+                        UpNextPanel(
+                            items = upNext,
+                            onPlay = { item ->
+                                viewModel.playTimelineItem(item)
+                                showQueuePanel = false
+                            },
+                            onClose = { showQueuePanel = false },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                                .heightIn(max = 260.dp)
+                        )
                     }
 
                     Spacer(Modifier.weight(1f))
@@ -566,6 +653,148 @@ fun PlayerContent(
             }
         }
     }
+}
+
+// ─── "Up Next" panel ──────────────────────────────────────────────────────────
+
+/**
+ * A compact dropdown listing the songs coming up after the currently-playing
+ * one in the player's timeline. Surfaced by swiping up on the album art in
+ * [PlayerContent]. Tapping a row jumps the player to that item (via
+ * [MainViewModel.playTimelineItem]); the panel itself is dismissed by the
+ * caller. Capped at [maxHeight] and scrolls internally for long queues.
+ */
+@Composable
+private fun UpNextPanel(
+    items: List<MediaItem>,
+    onPlay: (MediaItem) -> Unit,
+    modifier: Modifier = Modifier,
+    onClose: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        tonalElevation = 2.dp
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.Upcoming, null,
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Up Next",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "${items.size} song${if (items.size == 1) "" else "s"}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.weight(1f))
+                if (onClose != null) {
+                    Icon(
+                        Icons.Default.Close, "Close",
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onClose() },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            if (items.isEmpty()) {
+                Box(
+                    Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Nothing else queued",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxWidth()) {
+                    itemsIndexed(items, key = { _, item -> item.mediaId }) { index, item ->
+                        UpNextRow(
+                            position = index + 1,
+                            item = item,
+                            onClick = { onPlay(item) }
+                        )
+                        if (index < items.lastIndex) {
+                            HorizontalDivider(
+                                Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpNextRow(position: Int, item: MediaItem, onClick: () -> Unit) {
+    ListItem(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        headlineContent = {
+            Text(
+                item.mediaMetadata.title?.toString() ?: "Unknown",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        supportingContent = {
+            Text(
+                item.mediaMetadata.artist?.toString() ?: "Unknown",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        },
+        leadingContent = {
+            Box(
+                Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center
+            ) {
+                if (item.mediaMetadata.artworkUri != null) {
+                    AsyncImage(
+                        model = item.mediaMetadata.artworkUri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(
+                        "$position",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+    )
 }
 
 // ─── Native video surface ──────────────────────────────────────────────────────

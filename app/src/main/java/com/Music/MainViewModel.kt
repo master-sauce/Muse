@@ -173,6 +173,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _queue = MutableStateFlow<List<MediaItem>>(emptyList())
     val queue: StateFlow<List<MediaItem>> = _queue.asStateFlow()
 
+    // ── "Up Next" (full-timeline upcoming) ──────────────────────────────────
+    // The manual queue ([queue] / [manualQueueIds]) only contains songs the user
+    // explicitly queued. This flow shows the *actual* upcoming media items in the
+    // player's timeline (everything after the currently-playing index), which is
+    // what users expect an "Up Next" panel to surface. Refreshed by
+    // [updateQueue] whenever the timeline/current index changes.
+    private val _upNext = MutableStateFlow<List<MediaItem>>(emptyList())
+    val upNext: StateFlow<List<MediaItem>> = _upNext.asStateFlow()
+
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
 
@@ -445,6 +454,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         _queue.value = items
         _isQueueMode.value = manualQueueIds.isNotEmpty()
+
+        // "Up Next": every media item strictly after the current index in the
+        // timeline. In shuffle/repeat this is the player's own forward order;
+        // when the list is exhausted (last item / repeat-one) it's empty.
+        val upList = if (player.mediaItemCount > 0) {
+            val current = player.currentMediaItemIndex
+            val nextIndex = if (player.repeatMode == Player.REPEAT_MODE_ONE) {
+                C.INDEX_UNSET
+            } else {
+                player.currentTimeline.getNextWindowIndex(
+                    current, player.repeatMode, player.shuffleModeEnabled
+                )
+            }
+            if (nextIndex == C.INDEX_UNSET) emptyList()
+            else buildList {
+                var idx = nextIndex
+                val seen = mutableSetOf<Int>()
+                while (idx != C.INDEX_UNSET && seen.add(idx)) {
+                    add(player.getMediaItemAt(idx))
+                    idx = player.currentTimeline.getNextWindowIndex(
+                        idx, player.repeatMode, player.shuffleModeEnabled
+                    )
+                }
+            }
+        } else emptyList()
+        _upNext.value = upList
     }
 
     private fun startProgressUpdate() {
@@ -669,6 +704,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playFromQueue(item: MediaItem) {
+        val player = controller ?: return
+        for (i in 0 until player.mediaItemCount) {
+            if (player.getMediaItemAt(i).mediaId == item.mediaId) {
+                player.seekTo(i, 0L)
+                player.play()
+                break
+            }
+        }
+    }
+
+    /**
+     * Jump to a media item in the player's timeline by id and start playing it.
+     * Used by the big player's "Up Next" panel — unlike [playFromQueue] this
+     * works for *any* timeline item, not just the manual queue, since the
+     * upcoming list reflects the player's actual forward order.
+     */
+    fun playTimelineItem(item: MediaItem) {
         val player = controller ?: return
         for (i in 0 until player.mediaItemCount) {
             if (player.getMediaItemAt(i).mediaId == item.mediaId) {

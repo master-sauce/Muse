@@ -302,6 +302,9 @@ fun PlayerOverlay(
 
 // ─── Gesture helpers ──────────────────────────────────────────────────────────
 
+/** Which vertical direction(s) a [verticalDrag] handle should respond to. */
+enum class VerticalDragDirection { BOTH, DOWN, UP }
+
 /**
  * Detects a vertical drag using the [PointerEventPass.Initial] pass so it can
  * intercept a drag *before* child clickables (e.g. the play/pause buttons
@@ -318,20 +321,26 @@ fun PlayerOverlay(
  * predominantly vertical (|dy| > |dx|). A horizontal swipe therefore stays
  * with the child, while a vertical swipe anywhere collapses/expands the
  * player — exactly like YouTube Music.
+ *
+ * [dragDirection] lets a caller restrict engagement to one direction. The big
+ * player's root handle uses [VerticalDragDirection.DOWN] so an *upward* swipe
+ * (which would otherwise be a no-op clamp at progress = 1) is left free for
+ * the album art to use as a swipe-up-to-reveal-queue gesture.
  */
 fun Modifier.verticalDrag(
     touchSlop: Float,
     onDrag: (Float) -> Unit,
     onDragEnd: () -> Unit,
-    onDragCancel: () -> Unit
-): Modifier = this.pointerInput(touchSlop, onDrag, onDragEnd, onDragCancel) {
+    onDragCancel: () -> Unit,
+    dragDirection: VerticalDragDirection = VerticalDragDirection.BOTH
+): Modifier = this.pointerInput(touchSlop, onDrag, onDragEnd, onDragCancel, dragDirection) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
         var totalDragY = 0f
         var totalDragX = 0f
         var isDragging = false
-        // Once we decide this gesture is horizontal, stop competing for it so
-        // the child (Slider) gets a clean stream of events.
+        // Once we decide this gesture is horizontal (or the wrong direction),
+        // stop competing for it so the child gets a clean stream of events.
         var yieldedToChild = false
 
         // A gesture is handed to the child (Slider) only when the horizontal
@@ -357,12 +366,24 @@ fun Modifier.verticalDrag(
                 totalDragX += dx
                 val absY = abs(totalDragY)
                 val absX = abs(totalDragX)
-                // Engage the vertical morph as soon as there is meaningful
-                // vertical movement AND the gesture isn't strongly horizontal.
-                // This relaxes the old strict |dy| > |dx| rule so diagonal
-                // drags expand/collapse the player instead of being ignored,
-                // while horizontal drift during an engaged drag never breaks it.
-                if (absY > touchSlop && absX <= absY * horizontalRatio) {
+
+                // Direction gate: if the handle only wants DOWN drags, an
+                // upward swipe is handed to the child immediately (so the
+                // album-art swipe-up-to-reveal-queue gesture gets the events).
+                // Same for an UP-only handle seeing a downward swipe.
+                val wrongDirection = when (dragDirection) {
+                    VerticalDragDirection.DOWN -> totalDragY < 0f && absY > touchSlop
+                    VerticalDragDirection.UP   -> totalDragY > 0f && absY > touchSlop
+                    VerticalDragDirection.BOTH -> false
+                }
+                if (wrongDirection) {
+                    yieldedToChild = true
+                } else if (absY > touchSlop && absX <= absY * horizontalRatio) {
+                    // Engage the vertical morph as soon as there is meaningful
+                    // vertical movement AND the gesture isn't strongly horizontal.
+                    // This relaxes the old strict |dy| > |dx| rule so diagonal
+                    // drags expand/collapse the player instead of being ignored,
+                    // while horizontal drift during an engaged drag never breaks it.
                     isDragging = true
                     // Consume the historical movement too so children don't
                     // suddenly jump when we take over.
