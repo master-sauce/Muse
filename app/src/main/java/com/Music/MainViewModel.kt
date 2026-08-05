@@ -18,6 +18,8 @@ import com.Music.data.MusicRepository
 import com.Music.data.local.PlaylistEntity
 import com.Music.data.local.PlaylistWithSongs
 import com.Music.data.local.SongEntity
+import com.Music.data.remote.LyricsQueryCleaner
+import com.Music.data.remote.LyricsResponse
 import com.Music.data.remote.LyricsService
 import com.Music.data.remote.LrcParser
 import com.Music.data.remote.LyricsState
@@ -35,9 +37,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 enum class RepeatMode { NONE, ALL, ONE }
 
@@ -66,8 +71,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val repository: MusicRepository = DownloadState.repository()
 
+    // LRCLIB requires every client to identify itself with a User-Agent header
+    // of the form "<AppName> vX.Y (https://...)". Without it the request is
+    // fronted by Cloudflare and returns 520 ("Web server is returning an
+    // unknown error") — which is exactly why no lyrics were loading even with
+    // a correct query. The interceptor below stamps every request with one.
+    private val lrclibUserAgent = "Muse v1.0 (https://github.com/Muse/music-app)"
+
+    private val lyricsHttpClient = OkHttpClient.Builder()
+        .addInterceptor { chain: Interceptor.Chain ->
+            val req = chain.request().newBuilder()
+                .header("User-Agent", lrclibUserAgent)
+                .build()
+            chain.proceed(req)
+        }
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .build()
+
     private val lyricsService = Retrofit.Builder()
         .baseUrl("https://lrclib.net/api/")
+        .client(lyricsHttpClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build().create(LyricsService::class.java)
 
@@ -511,31 +535,123 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun stopProgressUpdate() { progressJob?.cancel() }
 
     private fun fetchLyrics(song: SongEntity) {
+        // Re-fetch guard: keep a token of the song we kicked off the request
+        // for, and ignore the result if the current song has since changed
+        // (otherwise a slow in-flight call for song A can clobber lyrics for
+        // song B that just started playing).
+        val requestToken = song.id
         viewModelScope.launch {
             _lyrics.value = LyricsState.Loading
             try {
-                val resp = lyricsService.getLyrics(
-                    artistName = song.artist,
-                    trackName  = song.title,
-                    duration   = if (song.duration > 0) (song.duration / 1000).toInt() else null
-                )
-                _lyrics.value = if (resp.isSuccessful) {
-                    val body = resp.body()!!
-                    when {
-                        body.instrumental -> LyricsState.Instrumental
-                        !body.syncedLyrics.isNullOrBlank() -> {
-                            val lines = LrcParser.parse(body.syncedLyrics)
-                            if (lines.isNotEmpty()) LyricsState.Synced(lines)
-                            else LyricsState.Plain(body.plainLyrics ?: "")
-                        }
-                        !body.plainLyrics.isNullOrBlank() -> LyricsState.Plain(body.plainLyrics)
-                        else -> LyricsState.NotFound
-                    }
-                } else LyricsState.NotFound
+                // Clean + split YouTube-style "Artist - Title" metadata into the
+                // separate (artist, title) values LRCLIB expects. The DB stores
+                // the YouTube *video* title (e.g. "Blur - Song 2 (Official Video)")
+                // as `title` and yt-dlp's `uploader` as `artist`. LRCLIB's /get
+                // wants track_name="Song 2" + artist_name="Blur"; sending
+                // track_name="Blur - Song 2" 404s — the single most common reason
+                // no lyrics ever load. normalize() splits the prefix and strips
+                // the noise so the query lines up with LRCLIB's canonical entries.
+                val (cleanArtist, cleanTitle) =
+                    LyricsQueryCleaner.normalize(song.title, song.artist)
+                val durationSec = if (song.duration > 0) (song.duration / 1000).toInt() else null
+
+                // Stage 1 — exact [/get] (fastest, highest confidence). LRCLIB
+                // requires `duration` here; without it the server returns 400,
+                // so only attempt the exact endpoint when we actually have one.
+                val exact: LyricsState? = if (durationSec != null) {
+                    try {
+                        val resp = lyricsService.getLyrics(
+                            artistName = cleanArtist,
+                            trackName  = cleanTitle,
+                            duration   = durationSec
+                        )
+                        if (resp.isSuccessful) resp.body()?.toLyricsState() else null
+                    } catch (_: Exception) { null }
+                } else null
+
+                val result = exact ?: run {
+                    // Stage 2 — fuzzy [/search]. Every parameter is optional,
+                    // so this works without a duration and tolerates imperfect
+                    // artist/title strings. Pick the best candidate from the
+                    // ranked list: prefer synced → plain → instrumental, and
+                    // (when we have a duration) the one closest to it.
+                    val searchResp = lyricsService.searchLyrics(
+                        trackName  = cleanTitle,
+                        artistName = cleanArtist.takeIf { it.isNotBlank() }
+                    )
+                    if (searchResp.isSuccessful) {
+                        searchResp.body()?.pickBest(durationSec)
+                    } else null
+                } ?: LyricsState.NotFound
+
+                if (requestToken == _currentSong.value?.id) {
+                    _lyrics.value = result
+                }
             } catch (e: Exception) {
-                _lyrics.value = LyricsState.NotFound
+                if (requestToken == _currentSong.value?.id) {
+                    _lyrics.value = LyricsState.NotFound
+                }
             }
         }
+    }
+
+    /** Map a single LRCLIB [LyricsResponse] to the UI [LyricsState]. */
+    private fun LyricsResponse.toLyricsState(): LyricsState = when {
+        instrumental -> LyricsState.Instrumental
+        !syncedLyrics.isNullOrBlank() -> {
+            val lines = LrcParser.parse(syncedLyrics)
+            if (lines.isNotEmpty()) LyricsState.Synced(lines)
+            else plainLyrics?.takeIf { it.isNotBlank() }?.let { LyricsState.Plain(it) }
+                ?: LyricsState.NotFound
+        }
+        !plainLyrics.isNullOrBlank() -> LyricsState.Plain(plainLyrics)
+        else -> LyricsState.NotFound
+    }
+
+    /**
+     * From a list of LRCLIB search candidates, pick the most useful one.
+     *
+     * Preference order (each step falls through if it yields nothing):
+     *  1. Entries that actually have lyrics (synced preferred over plain, so
+     *     the karaoke-style synced view is used whenever available).
+     *  2. If we know the song's duration, bias toward the candidate whose
+     *     duration is closest to it — same-named covers / remixes are common
+     *     and the duration filter reliably separates them.
+     *  3. If no candidate has lyrics but one is flagged instrumental, show the
+     *     instrumental state (better than "No lyrics found").
+     *  4. Otherwise [LyricsState.NotFound].
+     */
+    private fun List<LyricsResponse>.pickBest(durationSec: Int?): LyricsState {
+        if (isEmpty()) return LyricsState.NotFound
+
+        val withSynced = filter { !it.syncedLyrics.isNullOrBlank() }
+        val withPlain  = filter { !it.plainLyrics.isNullOrBlank() }
+
+        val bestSynced = withSynced.closestByDuration(durationSec)
+        if (bestSynced != null) {
+            val lines = LrcParser.parse(bestSynced.syncedLyrics!!)
+            if (lines.isNotEmpty()) return LyricsState.Synced(lines)
+            // synced string present but unparseable — fall through to plain
+        }
+
+        val bestPlain = withPlain.closestByDuration(durationSec)
+        if (bestPlain != null) return LyricsState.Plain(bestPlain.plainLyrics!!)
+
+        if (any { it.instrumental }) return LyricsState.Instrumental
+        return LyricsState.NotFound
+    }
+
+    /** Pick the entry whose `duration` is closest to [target] (seconds). */
+    private fun List<LyricsResponse>.closestByDuration(target: Int?): LyricsResponse? {
+        if (isEmpty()) return null
+        if (target == null) return first()
+        // Allow up to ~10s of slack — covers rounding and trimmed/extended
+        // versions of the same track without matching a totally different song.
+        val tolerance = 10
+        return filter { it.duration != null }
+            .minByOrNull { kotlin.math.abs(it.duration!!.toInt() - target) }
+            ?.takeIf { kotlin.math.abs(it.duration!!.toInt() - target) <= tolerance }
+            ?: firstOrNull()
     }
 
     // ── Downloads: thin delegates to the app-scoped DownloadState ──────────
