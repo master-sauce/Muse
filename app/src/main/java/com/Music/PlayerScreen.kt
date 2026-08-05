@@ -500,6 +500,7 @@ fun PlayerContent(
                                 showQueuePanel = false
                             },
                             onMove = { from, to -> viewModel.moveUpNextItem(from, to) },
+                            onRemove = { item -> viewModel.removeUpNextItem(item) },
                             onClose = { showQueuePanel = false },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -672,12 +673,17 @@ fun PlayerContent(
  * [PlayerContent]. Tapping a row jumps the player to that item (via
  * [MainViewModel.playTimelineItem]); the panel itself is dismissed by the
  * caller. Capped at [maxHeight] and scrolls internally for long queues.
+ *
+ * Swipe a row from end-to-start (right-to-left) to remove it from the timeline
+ * via [onRemove] — mirrors the Queue tab's slide-to-remove gesture.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UpNextPanel(
     items: List<MediaItem>,
     onPlay: (MediaItem) -> Unit,
     onMove: (fromListIndex: Int, toListIndex: Int) -> Unit,
+    onRemove: (MediaItem) -> Unit,
     modifier: Modifier = Modifier,
     onClose: (() -> Unit)? = null
 ) {
@@ -750,13 +756,59 @@ private fun UpNextPanel(
                 LazyColumn(state = lazyListState, modifier = Modifier.fillMaxWidth()) {
                     itemsIndexed(items, key = { _, item -> item.mediaId }) { index, item ->
                         ReorderableItem(reorderableState, key = item.mediaId) { isDragging ->
-                            UpNextRow(
-                                position = index + 1,
-                                item = item,
-                                isDragging = isDragging,
-                                dragHandleModifier = Modifier.draggableHandle(),
-                                onClick = { onPlay(item) }
+                            // Swipe end-to-start (right-to-left) to remove the
+                            // row from the timeline — mirrors the Queue tab.
+                            //
+                            // confirmValueChange returns false on purpose: we
+                            // trigger the removal ourselves via onRemove(), and
+                            // we never want the box to *park* at the dismissed
+                            // value. If it did, its red background would stay
+                            // drawn (and could be inherited by the slot that
+                            // slides up into the dismissed row's place) — the
+                            // "red ghost that won't go away" bug. By returning
+                            // false the box always snaps back toward rest; the
+                            // list then drops the item, disposing the row's
+                            // composition before any dismissed state can linger.
+                            // Pass `item` (identity), not `index`: the row's
+                            // positional index can be stale by the time the
+                            // confirm callback fires (the box now snaps back
+                            // instead of being disposed, so the closure may run
+                            // after the list has shifted). Removing by media id
+                            // always targets the exact swiped row.
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = {
+                                    if (it == SwipeToDismissBoxValue.EndToStart) {
+                                        onRemove(item)
+                                    }
+                                    false
+                                }
                             )
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                enableDismissFromStartToEnd = false,
+                                backgroundContent = {
+                                    Box(
+                                        Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.errorContainer)
+                                            .padding(horizontal = 20.dp),
+                                        contentAlignment = Alignment.CenterEnd
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete, null,
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                            ) {
+                                UpNextRow(
+                                    position = index + 1,
+                                    item = item,
+                                    isDragging = isDragging,
+                                    dragHandleModifier = Modifier.draggableHandle(),
+                                    onClick = { onPlay(item) }
+                                )
+                            }
                             if (index < items.lastIndex) {
                                 HorizontalDivider(
                                     Modifier.padding(horizontal = 16.dp),
@@ -784,7 +836,11 @@ private fun UpNextRow(
         modifier = Modifier
             .fillMaxWidth()
             .shadow(elevation, RoundedCornerShape(12.dp))
-            .background(if (isDragging) MaterialTheme.colorScheme.surface else Color.Transparent)
+            // Opaque surface at rest so the SwipeToDismissBox's red dismiss
+            // background (and the trash icon behind it) stay hidden until the
+            // user actually swipes — the content layer slides away to reveal
+            // them. Mirrors the Queue tab's row treatment.
+            .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick),
         headlineContent = {
             Text(

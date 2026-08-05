@@ -1061,6 +1061,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Remove an item from the "Up Next" list shown in the big player's queue
+     * panel. Resolves [item]'s media id to its real timeline index (which may
+     * differ from the row's list position under shuffle) and removes it from
+     * the player — the same primitive used by [removeFromQueue]. Also drops it
+     * from the manual queue set if it was queued manually, keeping the manual
+     * [queue] flow consistent.
+     *
+     * Takes the [MediaItem] (identity) rather than a list index so the removal
+     * always targets the exact row the user swiped, even if the list reorders
+     * between the swipe starting and [androidx.compose.material3.SwipeToDismissBox]
+     * firing its confirm callback (a stale positional index could otherwise
+     * delete the row below). Mirrors how the Queue tab removes by media id.
+     */
+    fun removeUpNextItem(item: MediaItem) {
+        val player = controller ?: return
+        val mediaId = item.mediaId
+
+        // Resolve the media id to its real timeline index and remove it.
+        for (i in 0 until player.mediaItemCount) {
+            if (player.getMediaItemAt(i).mediaId == mediaId) {
+                player.removeMediaItem(i)
+                break
+            }
+        }
+        manualQueueIds.remove(mediaId)
+        updateQueue()
+    }
+
     fun endDrag() {
         // Keep the drag flag on until the DB write-back finishes. Otherwise the
         // allSongs collector un-gates the instant we flip the flag, emitting a
