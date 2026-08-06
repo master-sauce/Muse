@@ -74,7 +74,10 @@ fun PlayerContent(
     val progress    by viewModel.playbackProgress.collectAsState()
     val position    by viewModel.currentPosition.collectAsState()
     val duration    by viewModel.duration.collectAsState()
-    val isShuffled  by viewModel.isShuffled.collectAsState()
+    // Use the user's shuffle *intent* (not the live player flag) so the button
+    // stays highlighted even while a manual queue holds actual shuffle off —
+    // the pending restore will re-apply shuffle once the queue drains.
+    val isShuffled  by viewModel.shuffleIntent.collectAsState()
     val repeatMode  by viewModel.repeatMode.collectAsState()
     val lyricsState by viewModel.lyrics.collectAsState()
     val exoPlayer   by viewModel.exoPlayer.collectAsState()

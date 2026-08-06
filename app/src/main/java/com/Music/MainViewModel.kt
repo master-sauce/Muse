@@ -195,7 +195,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // once the queue drains we restore this saved state so playback continues
     // shuffled over the remaining playlist / library songs. -1 = nothing to
     // restore. See [enterManualQueueMode] and [onMediaItemTransition].
-    private var shuffleRestoreOnDrain: Int = -1
+    //
+    // Exposed as a StateFlow (not a plain var) so the UI can observe the user's
+    // shuffle *intent* while a manual queue is suppressing the live flag — see
+    // [shuffleIntent], which the player's shuffle button tints to so it stays
+    // "active" even while the queue holds actual shuffle off.
+    private val _shuffleRestoreOnDrain = MutableStateFlow(-1)
+    private var shuffleRestoreOnDrain: Int
+        get() = _shuffleRestoreOnDrain.value
+        set(value) { _shuffleRestoreOnDrain.value = value }
     private val _repeatMode       = MutableStateFlow(RepeatMode.NONE)
     val repeatMode                = _repeatMode.asStateFlow()
     private var progressJob: Job? = null
@@ -215,6 +223,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
+
+    // The shuffle button in the player should reflect the user's shuffle
+    // *intent*, not the live player flag. While a manual queue is active we
+    // hold actual shuffle OFF (so queued songs play in added order), but the
+    // user can still toggle the intent — turning shuffle "on" during a queue
+    // remembers that and restores it once the queue drains. This flow surfaces
+    // that intent so the button stays highlighted (primary tint) even while
+    // the live flag is off, and flips off when the user toggles intent off.
+    // Outside queue mode it simply mirrors [isShuffled].
+    val shuffleIntent: StateFlow<Boolean> =
+        combine(_isShuffled, _isQueueMode, _shuffleRestoreOnDrain) { live, queuing, restore ->
+            if (queuing) restore == 1 else live
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.Eagerly,
+            initialValue = false
+        )
 
     private val manualQueueIds = mutableSetOf<String>()
 
