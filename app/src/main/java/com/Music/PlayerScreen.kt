@@ -83,10 +83,15 @@ fun PlayerContent(
     // The playlist the current playback list came from (null when playing from
     // the Library). Drives the "Remove from playlist" overflow-menu option.
     val playingPlaylistId by viewModel.playingPlaylistId.collectAsState()
-    // Look up the playlist name so the confirm dialog can name it.
-    val playingPlaylist = playingPlaylistId?.let { id ->
-        playlists.firstOrNull { it.playlist.id == id }?.playlist
+    // Look up the playlist (with its songs) so the overflow menu can both name
+    // the playlist and check whether the currently-playing song is still a
+    // member of it. The playlists flow re-emits after a membership change (see
+    // MusicRepository.playlistsWithSongs), so this drops the "Remove from
+    // playlist" option as soon as the song is no longer in the playlist.
+    val playingPlaylistWithSongs = playingPlaylistId?.let { id ->
+        playlists.firstOrNull { it.playlist.id == id }
     }
+    val playingPlaylist = playingPlaylistWithSongs?.playlist
 
     val isVideoFile = currentSong?.isVideo() == true
     var videoMode by remember(currentSong?.id) { mutableStateOf(false) }
@@ -341,11 +346,21 @@ fun PlayerContent(
                                     // opens its own confirm dialog below.
                                     if (song != null) {
                                         HorizontalDivider()
-                                        if (playingPlaylist != null) {
+                                        // Only offer "Remove from playlist" when the
+                                        // currently-playing song is actually still a
+                                        // member of the playlist playback came from.
+                                        // The playlists flow re-emits after a removal
+                                        // (see MusicRepository.playlistsWithSongs),
+                                        // so this gate drops the option as soon as the
+                                        // song is no longer in the playlist — keeping
+                                        // the player's menu in sync with the DB.
+                                        val songStillInPlaylist = playingPlaylistWithSongs?.songs
+                                            ?.any { it.id == song.id } == true
+                                        if (songStillInPlaylist) {
                                             DropdownMenuItem(
                                                 text        = {
                                                     Text(
-                                                        "Remove from \"${playingPlaylist.name}\"",
+                                                        "Remove from \"${playingPlaylist?.name}\"",
                                                         color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
                                                     )
                                                 },
