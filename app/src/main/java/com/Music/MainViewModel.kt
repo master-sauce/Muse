@@ -189,6 +189,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val duration                  = _duration.asStateFlow()
     private val _isShuffled       = MutableStateFlow(false)
     val isShuffled                = _isShuffled.asStateFlow()
+    // Remembers whether shuffle was ON before the user started a manual queue.
+    // While the manual queue has songs in it we force shuffle OFF so the queued
+    // songs play in their exact added order (right after the current song);
+    // once the queue drains we restore this saved state so playback continues
+    // shuffled over the remaining playlist / library songs. -1 = nothing to
+    // restore. See [enterManualQueueMode] and [onMediaItemTransition].
+    private var shuffleRestoreOnDrain: Int = -1
     private val _repeatMode       = MutableStateFlow(RepeatMode.NONE)
     val repeatMode                = _repeatMode.asStateFlow()
     private var progressJob: Job? = null
@@ -406,13 +413,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val isForward = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
                             (reason == Player.MEDIA_ITEM_TRANSITION_REASON_SEEK && (lastMediaItemIndex == C.INDEX_UNSET || newIndex > lastMediaItemIndex))
 
-                    if (isForward) {
+                    // Only "consume" the just-played song if it was a manually-
+                    // queued one (its id is in [manualQueueIds]). Playlist /
+                    // library songs stay in the timeline so playback can fall
+                    // back to them once the queue drains and repeat-all loops
+                    // cleanly; queued songs are removed once played so they
+                    // don't replay on loop.
+                    if (isForward && oldSongId in manualQueueIds) {
                         manualQueueIds.remove(oldSongId)
                         for (i in player.mediaItemCount - 1 downTo 0) {
                             if (player.getMediaItemAt(i).mediaId == oldSongId) {
                                 player.removeMediaItem(i)
                             }
                         }
+                    }
+
+                    // The manual queue just drained (the last queued song
+                    // finished and was removed above). If we had saved the
+                    // user's shuffle state to restore, do so now so playback
+                    // continues shuffled over the remaining playlist / library
+                    // songs — the requested "everything after the queue
+                    // continues in shuffle" behaviour.
+                    if (manualQueueIds.isEmpty() && shuffleRestoreOnDrain != -1) {
+                        val restore = shuffleRestoreOnDrain == 1
+                        shuffleRestoreOnDrain = -1
+                        player.shuffleModeEnabled = restore
+                        _isShuffled.value = restore
                     }
                 }
 
@@ -752,6 +778,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playSong(song: SongEntity) {
         manualQueueIds.clear()
         _isQueueMode.value = false
+        // Starting fresh playback discards the manual queue, so any saved
+        // shuffle-restore intent is obsolete. Shuffle state is left as-is on
+        // the player (the user controls it via [toggleShuffle]).
+        shuffleRestoreOnDrain = -1
         val player = controller ?: return
         val items  = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
@@ -764,21 +794,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun enterManualQueueMode() {
         val player = controller ?: return
+        // On the first manual-queue action, temporarily disable shuffle so the
+        // queued songs play in the exact order the user added them (right after
+        // the current song). We remember whether shuffle was on so that once
+        // the queue drains we can restore it — letting the remaining playlist
+        // / library songs continue in shuffle, as requested.
+        //
+        // We intentionally do NOT truncate the timeline here. The playlist /
+        // library songs that were already loaded remain in the timeline AFTER
+        // the queued songs, so once the manual queue drains playback naturally
+        // continues with the rest of the playlist / library the user was in —
+        // instead of stopping dead the way the old truncate-and-replace
+        // behaviour did. The current song is also NOT added to
+        // [manualQueueIds]: only songs the user explicitly queued belong there,
+        // which keeps the consume logic in [onMediaItemTransition] from
+        // removing playlist songs after they play.
         if (manualQueueIds.isEmpty()) {
-            player.shuffleModeEnabled = false
-            _isShuffled.value = false
-            _currentSong.value?.let { current ->
-                manualQueueIds.add(current.id)
-                val currentIndex = player.currentMediaItemIndex
-                if (player.mediaItemCount > currentIndex + 1) {
-                    player.removeMediaItems(currentIndex + 1, player.mediaItemCount)
-                }
-                if (currentIndex > 0) {
-                    player.removeMediaItems(0, currentIndex)
-                }
-                lastMediaItemIndex = player.currentMediaItemIndex
+            if (player.shuffleModeEnabled) {
+                shuffleRestoreOnDrain = if (player.shuffleModeEnabled) 1 else 0
+                player.shuffleModeEnabled = false
+                _isShuffled.value = false
             }
         }
+    }
+
+    /**
+     * Index in the player's timeline where the next manually-queued song should
+     * be inserted so it lands at the *end* of the queue zone — i.e. right after
+     * any already-queued songs and before the first remaining playlist / library
+     * song. The queue zone is the contiguous run of [manualQueueIds] members
+     * immediately following the currently-playing item.
+     *
+     * Used by [addToQueue] (append to queue). [playNext] inserts at the *front*
+     * of the zone (currentIndex + 1) instead, so its song plays immediately.
+     */
+    private fun queueZoneEndIndex(): Int {
+        val player = controller ?: return 0
+        var idx = player.currentMediaItemIndex + 1
+        while (idx < player.mediaItemCount) {
+            if (player.getMediaItemAt(idx).mediaId !in manualQueueIds) break
+            idx++
+        }
+        return idx
     }
 
 
@@ -793,7 +850,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         manualQueueIds.add(song.id)
-        player.addMediaItem(buildMediaItem(song))
+        // Insert at the end of the queue zone (after any already-queued songs,
+        // before the remaining playlist / library songs) so the manual queue
+        // takes priority over the current list while still letting the list
+        // resume once the queue is exhausted.
+        player.addMediaItem(queueZoneEndIndex(), buildMediaItem(song))
         if (player.playbackState == Player.STATE_IDLE || player.mediaItemCount == 1) {
             player.prepare(); player.play()
         }
@@ -807,6 +868,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (player.getMediaItemAt(i).mediaId == songId) {
                 player.removeMediaItem(i)
             }
+        }
+        // If removing this song drained the manual queue, restore the shuffle
+        // state we saved when the queue was started — same as the auto-advance
+        // path in [onMediaItemTransition] — so playback continues shuffled over
+        // the remaining playlist / library songs.
+        if (manualQueueIds.isEmpty() && shuffleRestoreOnDrain != -1) {
+            val restore = shuffleRestoreOnDrain == 1
+            shuffleRestoreOnDrain = -1
+            player.shuffleModeEnabled = restore
+            _isShuffled.value = restore
         }
         updateQueue()
     }
@@ -858,6 +929,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         manualQueueIds.add(song.id)
+        // Insert at the FRONT of the queue zone (right after the current song)
+        // so this song plays next, ahead of any other queued songs and ahead
+        // of the remaining playlist / library songs. Contrast with
+        // [addToQueue], which appends to the end of the queue zone.
         val nextIndex = if (player.mediaItemCount > 0) player.currentMediaItemIndex + 1 else 0
         player.addMediaItem(nextIndex, buildMediaItem(song))
         if (player.playbackState == Player.STATE_IDLE || player.mediaItemCount == 1) {
@@ -889,6 +964,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun playSongList(songs: List<SongEntity>, startIndex: Int = 0) {
         manualQueueIds.clear()
         _isQueueMode.value = false
+        // Same as [playSong]: fresh playback discards the manual queue and any
+        // saved shuffle-restore intent.
+        shuffleRestoreOnDrain = -1
         val player = controller ?: return
         val items  = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
@@ -947,9 +1025,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleShuffle() {
         val p = controller ?: return
+        // While a manual queue is active, shuffle is intentionally held OFF so
+        // the queued songs play in their added order. The user can still toggle
+        // the *intent*: turning it OFF just stays off; turning it ON while a
+        // queue is active remembers that intent and applies it automatically
+        // once the queue drains (so "everything after the queue continues in
+        // shuffle"). We never leave shuffle forced-off silently — we record
+        // the user's wish via [shuffleRestoreOnDrain].
         if (_isQueueMode.value) {
-            p.shuffleModeEnabled = false
-            _isShuffled.value = false
+            // The player is currently held off-shuffle during the queue.
+            // Toggle the *pending* restore state instead of the live flag.
+            val wantOn = shuffleRestoreOnDrain == -1 || shuffleRestoreOnDrain == 0
+            shuffleRestoreOnDrain = if (wantOn) 1 else 0
+            _isShuffled.value = false // live state stays off until the queue drains
             return
         }
         val newState = !p.shuffleModeEnabled
@@ -1012,10 +1100,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncPlayerWithMove(song.id, fromIndex, toIndex, list)
     }
 
+    /**
+     * Reorder an item within the manual Queue tab.
+     *
+     * The queue tab renders only the [manualQueueIds] songs, so the
+     * [fromIndex]/[toIndex] it reports refer to positions inside the queue
+     * *list* — NOT absolute timeline positions. Now that the queue is a zone
+     * nested inside the larger playlist / library timeline (those songs sit
+     * before/after the queue zone), a queue-list index no longer maps 1:1 to a
+     * timeline index, which made the old `player.moveMediaItem(from, to)`
+     * reorder (or delete) the wrong song. Resolve each list position to its
+     * real timeline index via media id first, then move — same approach
+     * [moveUpNextItem] already uses for the Up Next panel.
+     */
     fun moveQueueItem(fromIndex: Int, toIndex: Int) {
         val player = controller ?: return
-        if (fromIndex in 0 until player.mediaItemCount && toIndex in 0 until player.mediaItemCount) {
-            player.moveMediaItem(fromIndex, toIndex)
+        val q = _queue.value
+        if (fromIndex !in q.indices || toIndex !in q.indices) return
+        if (fromIndex == toIndex) return
+
+        val fromMediaId = q[fromIndex].mediaId
+        val toMediaId = q[toIndex].mediaId
+
+        var fromTimelineIndex = -1
+        var toTimelineIndex = -1
+        for (i in 0 until player.mediaItemCount) {
+            val id = player.getMediaItemAt(i).mediaId
+            if (id == fromMediaId) fromTimelineIndex = i
+            if (id == toMediaId) toTimelineIndex = i
+        }
+        if (fromTimelineIndex < 0 || toTimelineIndex < 0) return
+
+        if (fromTimelineIndex != toTimelineIndex &&
+            toTimelineIndex in 0 until player.mediaItemCount) {
+            player.moveMediaItem(fromTimelineIndex, toTimelineIndex)
             updateQueue()
         }
     }
