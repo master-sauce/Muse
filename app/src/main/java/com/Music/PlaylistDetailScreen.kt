@@ -400,7 +400,7 @@ fun PlaylistDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick  = { viewModel.playSongList(filteredSongs, 0) },
+                            onClick  = { viewModel.playSongList(filteredSongs, 0, fromPlaylistId = playlistId) },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
                         ) {
@@ -411,7 +411,7 @@ fun PlaylistDetailScreen(
                         OutlinedButton(
                             onClick  = {
                                 viewModel.toggleShuffle()
-                                viewModel.playSongList(filteredSongs, 0)
+                                viewModel.playSongList(filteredSongs, 0, fromPlaylistId = playlistId)
                             },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
@@ -480,7 +480,7 @@ fun PlaylistDetailScreen(
                                         // next/previous navigates every song in
                                         // the playlist even while searching.
                                         val fullIndex = songs.indexOfFirst { it.id == song.id }
-                                        if (fullIndex >= 0) viewModel.playSongList(songs, fullIndex)
+                                        if (fullIndex >= 0) viewModel.playSongList(songs, fullIndex, fromPlaylistId = playlistId)
                                     }
                                     // Just play from the mini player — don't
                                     // open the big player. The mini player

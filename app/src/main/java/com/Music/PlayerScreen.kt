@@ -80,6 +80,13 @@ fun PlayerContent(
     val exoPlayer   by viewModel.exoPlayer.collectAsState()
     val playlists   by viewModel.playlists.collectAsState()
     val upNext      by viewModel.upNext.collectAsState()
+    // The playlist the current playback list came from (null when playing from
+    // the Library). Drives the "Remove from playlist" overflow-menu option.
+    val playingPlaylistId by viewModel.playingPlaylistId.collectAsState()
+    // Look up the playlist name so the confirm dialog can name it.
+    val playingPlaylist = playingPlaylistId?.let { id ->
+        playlists.firstOrNull { it.playlist.id == id }?.playlist
+    }
 
     val isVideoFile = currentSong?.isVideo() == true
     var videoMode by remember(currentSong?.id) { mutableStateOf(false) }
@@ -210,6 +217,9 @@ fun PlayerContent(
             // sibling of the root Box below, can read/write them too.
             var showOverflowMenu by remember { mutableStateOf(false) }
             var showAddToPlaylist by remember { mutableStateOf(false) }
+            // Confirm dialogs for the delete actions added to the overflow menu.
+            var showConfirmDelete by remember { mutableStateOf(false) }
+            var showConfirmRemoveFromPlaylist by remember { mutableStateOf(false) }
 
             // A single vertical-drag handle on the root Box lets the user
             // drag down from anywhere in the player to collapse it (like
@@ -322,6 +332,47 @@ fun PlayerContent(
                                             onClick     = {
                                                 showOverflowMenu = false
                                                 viewModel.shareSongAsLink(song)
+                                            }
+                                        )
+                                    }
+                                    // Delete actions for the currently-playing
+                                    // song, mirroring the per-row menus in the
+                                    // Library and Playlist Detail screens. Each
+                                    // opens its own confirm dialog below.
+                                    if (song != null) {
+                                        HorizontalDivider()
+                                        if (playingPlaylist != null) {
+                                            DropdownMenuItem(
+                                                text        = {
+                                                    Text(
+                                                        "Remove from \"${playingPlaylist.name}\"",
+                                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Default.RemoveCircleOutline, null,
+                                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showOverflowMenu = false
+                                                    showConfirmRemoveFromPlaylist = true
+                                                }
+                                            )
+                                        }
+                                        DropdownMenuItem(
+                                            text        = {
+                                                Text("Delete from library",
+                                                    color = MaterialTheme.colorScheme.error)
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Delete, null,
+                                                    tint = MaterialTheme.colorScheme.error)
+                                            },
+                                            onClick = {
+                                                showOverflowMenu = false
+                                                showConfirmDelete = true
                                             }
                                         )
                                     }
@@ -659,6 +710,69 @@ fun PlayerContent(
                         showAddToPlaylist = false
                     },
                     onDismiss = { showAddToPlaylist = false }
+                )
+            }
+
+            // ── Delete-from-library confirm ────────────────────────────────
+            // Mirrors the per-row confirm in the Library list. Permanently
+            // removes the currently-playing song (and its file) from the
+            // library and drops it from the player's timeline.
+            if (showConfirmDelete && currentSong != null) {
+                val song = currentSong!!
+                AlertDialog(
+                    onDismissRequest = { showConfirmDelete = false },
+                    containerColor = MaterialTheme.colorScheme.background,
+                    title   = { Text("Delete song?") },
+                    text    = {
+                        Text("\"${song.title}\" will be permanently removed from your library and its file deleted.")
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                viewModel.deleteSong(song)
+                                showConfirmDelete = false
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        ) { Text("Delete") }
+                    },
+                    dismissButton = {
+                        OutlinedButton(onClick = { showConfirmDelete = false }) { Text("Cancel") }
+                    }
+                )
+            }
+
+            // ── Remove-from-playlist confirm ───────────────────────────────
+            // Only reachable when playback came from a playlist. Removes the
+            // currently-playing song from that playlist; the song stays in the
+            // library. Mirrors the per-row confirm in PlaylistDetailScreen.
+            if (showConfirmRemoveFromPlaylist && currentSong != null && playingPlaylist != null) {
+                val song = currentSong!!
+                val plName = playingPlaylist!!.name
+                AlertDialog(
+                    onDismissRequest = { showConfirmRemoveFromPlaylist = false },
+                    containerColor = MaterialTheme.colorScheme.background,
+                    title   = { Text("Remove from playlist?") },
+                    text    = {
+                        Text("\"${song.title}\" will be removed from \"$plName\". It stays in your library.")
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                viewModel.removeCurrentSongFromPlaylist()
+                                showConfirmRemoveFromPlaylist = false
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        ) { Text("Remove") }
+                    },
+                    dismissButton = {
+                        OutlinedButton(onClick = { showConfirmRemoveFromPlaylist = false }) { Text("Cancel") }
+                    }
                 )
             }
         }

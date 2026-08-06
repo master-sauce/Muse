@@ -326,6 +326,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** The playlist currently loaded into [_playlistSongs] (for re-sort on mode change). */
     private var loadedPlaylistId: Long? = null
 
+    // ── "Playing from" playlist tracking ────────────────────────────────────
+    // When the user starts playback from a playlist (Play All / tapping a row
+    // in PlaylistDetailScreen), we remember which playlist the current
+    // playback list came from. The big Player's overflow menu uses this to
+    // offer a "Remove from playlist" action for the currently-playing song
+    // (mirroring the per-row option in PlaylistDetailScreen). null when
+    // playing from the Library or a manual queue.
+    private val _playingPlaylistId = MutableStateFlow<Long?>(null)
+    val playingPlaylistId: StateFlow<Long?> = _playingPlaylistId.asStateFlow()
+
     init {
         viewModelScope.launch {
             repository.allSongs.collect {
@@ -782,6 +792,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // shuffle-restore intent is obsolete. Shuffle state is left as-is on
         // the player (the user controls it via [toggleShuffle]).
         shuffleRestoreOnDrain = -1
+        // Playing from the Library, not a playlist.
+        _playingPlaylistId.value = null
         val player = controller ?: return
         val items  = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
@@ -961,18 +973,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         p.play()
     }
 
-    fun playSongList(songs: List<SongEntity>, startIndex: Int = 0) {
+    /**
+     * Start playing [songs] from [startIndex].
+     *
+     * @param fromPlaylistId when the songs come from a playlist, pass its id so
+     *   the big Player's overflow menu can offer a "Remove from playlist"
+     *   action for the currently-playing song. Pass null (the default) for
+     *   Library / ad-hoc lists.
+     */
+    fun playSongList(songs: List<SongEntity>, startIndex: Int = 0, fromPlaylistId: Long? = null) {
         manualQueueIds.clear()
         _isQueueMode.value = false
         // Same as [playSong]: fresh playback discards the manual queue and any
         // saved shuffle-restore intent.
         shuffleRestoreOnDrain = -1
+        _playingPlaylistId.value = fromPlaylistId
         val player = controller ?: return
         val items  = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
         player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
         player.prepare(); player.play()
         updateQueue()
+    }
+
+    /**
+     * Remove the currently-playing song from the playlist it's currently
+     * playing from ([playingPlaylistId]). The song stays in the library. No-op
+     * if playback isn't from a playlist or there's no current song. Used by the
+     * big Player's overflow menu — mirrors the per-row "Remove from Playlist"
+     * option in PlaylistDetailScreen.
+     */
+    fun removeCurrentSongFromPlaylist() {
+        val song = _currentSong.value ?: return
+        val playlistId = _playingPlaylistId.value ?: return
+        viewModelScope.launch {
+            repository.removeSongFromPlaylist(playlistId, song.id)
+        }
     }
 
     private fun buildMediaItem(s: SongEntity) = MediaItem.Builder()
