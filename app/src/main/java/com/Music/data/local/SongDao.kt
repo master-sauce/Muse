@@ -30,6 +30,18 @@ interface SongDao {
     suspend fun updateSortOrder(id: String, order: Int)
 
     /**
+     * Stamp [id]'s `createdAt` with [createdAt] (wall-clock millis) so the song
+     * jumps to the top of the Library / Playlist in Newest sort mode. Used when
+     * a song that's already in the library is re-added (e.g. re-importing a
+     * playlist that contains it) — without this it keeps its original
+     * `createdAt` and gets stranded below newer songs even though the user just
+     * (re)added it. The user's custom drag order (`sortOrder`) is deliberately
+     * left untouched.
+     */
+    @Query("UPDATE songs SET createdAt = :createdAt WHERE id = :id")
+    suspend fun touchCreatedAt(id: String, createdAt: Long)
+
+    /**
      * Bump every song's sortOrder up by 1. Used to make room at the top (position 0)
      * when a new song is inserted ahead of the existing members so it lands at the
      * head of the user's custom order.

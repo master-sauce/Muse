@@ -338,6 +338,24 @@ class MusicRepository(
         songDao.updateSortOrder(id, order)
     }
 
+    /**
+     * Mark [songId] as freshly added by stamping its `createdAt` with the
+     * current wall-clock time, so it lands at the top in Newest sort mode on
+     * both the Library and Playlist screens.
+     *
+     * Used after auto-adding a song to a playlist: when re-importing a
+     * playlist (or re-downloading a link) that contains a song already in the
+     * library, the duplicate-detection paths return the *existing* song id
+     * without re-inserting it — so its `createdAt` stays at the original add
+     * time and the song appears below newer songs in Newest sort, even though
+     * the user just (re)added it. Touching `createdAt` here makes that re-add
+     * behave like a fresh add for time-based ordering. The user's manual
+     * custom drag order (`sortOrder`) is deliberately left untouched.
+     */
+    suspend fun touchSong(songId: String) = withContext(Dispatchers.IO) {
+        songDao.touchCreatedAt(songId, System.currentTimeMillis())
+    }
+
     suspend fun deleteSong(song: SongEntity) = withContext(Dispatchers.IO) {
         File(song.filePath).takeIf { it.exists() }?.delete()
         songDao.deleteSong(song)

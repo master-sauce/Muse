@@ -155,6 +155,18 @@ object DownloadState {
         // handles the actual insert. No-op if already a member.
         @Suppress("UNUSED_VARIABLE") val exists = playlist
         repository.addSongToPlaylist(playlistId, songId)
+        // Mark the song as freshly added so it lands at the top in Newest sort
+        // on both the Library and Playlist screens. This fixes the
+        // "auto-download + put-in-playlist sometimes doesn't put the song at
+        // the top" bug: when the downloaded song was already in the library
+        // (a duplicate — same video id, possibly a different source URL), the
+        // duplicate-detection paths return the existing row without re-stamping
+        // its `createdAt`, so it kept its original add time and sorted below
+        // newer songs. Touching `createdAt` here makes the (re)add behave like
+        // a fresh add for time-based ordering. Harmless for brand-new songs
+        // (their `createdAt` is already ~now) and deliberately leaves the
+        // user's custom drag order (`sortOrder`) untouched.
+        repository.touchSong(songId)
     }
 
     /**
