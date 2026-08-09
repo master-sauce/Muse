@@ -1,5 +1,6 @@
 package com.Music
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,12 @@ fun LyricsScreen(viewModel: MainViewModel, onNavigateBack: () -> Unit) {
     val lyricsState by viewModel.lyrics.collectAsState()
     val currentSong by viewModel.currentSong.collectAsState()
     val position    by viewModel.currentPosition.collectAsState()
+
+    // Mirror the on-screen chevron: the system back button also returns to the
+    // expanded media player that was open before lyrics were pushed on top.
+    // Without this, the default nav pop leaves the player overlay collapsed and
+    // drops the user back on the underlying Library/Playlist screen.
+    BackHandler { onNavigateBack() }
 
     Box(
         Modifier.fillMaxSize().background(
