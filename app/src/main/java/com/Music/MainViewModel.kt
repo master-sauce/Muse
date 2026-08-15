@@ -386,6 +386,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Eagerly restore the last played song so the mini player
+        // appears immediately on app launch, before the MediaController
+        // connects and the full session restore completes.
+        viewModelScope.launch {
+            val lastId = repository.getLastPlayedSongId()
+            if (lastId != null) {
+                _songs.filter { it.isNotEmpty() }.first()
+                val song = _songs.value.find { it.id == lastId }
+                if (song != null && File(song.filePath).exists()) {
+                    _currentSong.value = song
+                    val lastPos = repository.getLastPlayedPosition()
+                    _currentPosition.value = lastPos
+                    _duration.value = song.duration
+                    if (song.duration > 0L) {
+                        _playbackProgress.value = lastPos.toFloat() / song.duration
+                    }
+                }
+            }
+        }
+
         val token = SessionToken(application, ComponentName(application, PlaybackService::class.java))
         controllerFuture = MediaController.Builder(application, token).buildAsync()
         controllerFuture?.addListener({ setupController() }, MoreExecutors.directExecutor())
@@ -396,7 +416,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _exoPlayer.value = player
         lastMediaItemIndex = player.currentMediaItemIndex
 
-        // Restore last session if player is empty
+        // Restore last session if player is empty, or sync current song if
+        // the player already has items (e.g. from a MediaSession restore).
         viewModelScope.launch {
             _songs.filter { it.isNotEmpty() }.first()
             if (player.mediaItemCount == 0) {
@@ -419,6 +440,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
+            } else {
+                // Player already has items — either from a MediaSession restore
+                // (continuous playback) or from PlaybackService's eager restore
+                // (which loads just the last song for the notification). In both
+                // cases we need to:
+                //  1) Sync the current song metadata from the player.
+                //  2) Replace the single-item playlist with the full library so
+                //     next/previous navigation works. Preserve the current
+                //     position so playback resumes seamlessly.
+                val currentMediaId = player.currentMediaItem?.mediaId
+                val wasPlaying = player.isPlaying
+                val currentPos = player.currentPosition
+                if (currentMediaId != null) {
+                    val song = _songs.value.find { it.id == currentMediaId }
+                    if (song != null) {
+                        _currentSong.value = song
+                        val dur = if (player.duration > 0) player.duration else song.duration
+                        _currentPosition.value = currentPos
+                        _duration.value = dur
+                        if (dur > 0L) {
+                            _playbackProgress.value = currentPos.toFloat() / dur
+                        }
+
+                        // Replace the single-item playlist with the full library
+                        // so next/previous navigation works.
+                        val items = _songs.value.filter { File(it.filePath).exists() }
+                            .map { buildMediaItem(it) }
+                        val startIndex = items.indexOfFirst { it.mediaId == currentMediaId }
+                            .coerceAtLeast(0)
+                        if (items.isNotEmpty()) {
+                            player.setMediaItems(items, startIndex, currentPos)
+                            player.prepare()
+                            if (wasPlaying) player.play()
+                        }
+                    }
+                }
+                if (wasPlaying) startProgressUpdate()
             }
         }
 
