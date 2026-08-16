@@ -430,6 +430,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val startIndex = items.indexOfFirst { it.mediaId == lastId }.coerceAtLeast(0)
                         if (items.isNotEmpty()) {
                             player.setMediaItems(items, startIndex, lastPos)
+                            player.playWhenReady = false
                             player.prepare()
                             _currentSong.value = song
                             _currentPosition.value = lastPos
@@ -448,7 +449,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 //  1) Sync the current song metadata from the player.
                 //  2) Replace the single-item playlist with the full library so
                 //     next/previous navigation works. Preserve the current
-                //     position so playback resumes seamlessly.
+                //     position and playing state so the user's play/pause
+                //     choice (including from the notification) is respected.
                 val currentMediaId = player.currentMediaItem?.mediaId
                 val wasPlaying = player.isPlaying
                 val currentPos = player.currentPosition
@@ -464,13 +466,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         // Replace the single-item playlist with the full library
-                        // so next/previous navigation works.
+                        // so next/previous navigation works. Preserve the user's
+                        // current play/pause state — if they unpaused from the
+                        // notification, keep playing.
                         val items = _songs.value.filter { File(it.filePath).exists() }
                             .map { buildMediaItem(it) }
                         val startIndex = items.indexOfFirst { it.mediaId == currentMediaId }
                             .coerceAtLeast(0)
                         if (items.isNotEmpty()) {
                             player.setMediaItems(items, startIndex, currentPos)
+                            player.playWhenReady = wasPlaying
                             player.prepare()
                             if (wasPlaying) player.play()
                         }
@@ -481,6 +486,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         // Sync initial state
+        _isPlaying.value = player.isPlaying
         _isShuffled.value = player.shuffleModeEnabled
         _repeatMode.value = when (player.repeatMode) {
             Player.REPEAT_MODE_ALL -> RepeatMode.ALL
