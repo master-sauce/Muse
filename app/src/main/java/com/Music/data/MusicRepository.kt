@@ -422,6 +422,17 @@ class MusicRepository(
 
     fun getLastPlayedSongId(): String? = prefs.getString("last_song_id", null)
     fun getLastPlayedPosition(): Long = prefs.getLong("last_position", 0L)
+
+    // ── Shuffle preference ─────────────────────────────────────────────────
+    // Persisted so the player's shuffle mode survives app restarts. Saved from
+    // the player's onShuffleModeEnabledChanged listener (not from ViewModel
+    // helpers) so the manual-queue shuffle suppression (which never flips the
+    // player flag) can't clobber the user's real preference.
+    fun saveShuffleEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("shuffle_enabled", enabled).apply()
+    }
+
+    fun getShuffleEnabled(): Boolean = prefs.getBoolean("shuffle_enabled", false)
     suspend fun getSongById(id: String) = songDao.getSongById(id)
 
     /** Look up a song by its source URL (null if not in the library). */

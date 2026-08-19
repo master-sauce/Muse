@@ -487,6 +487,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Sync initial state
         _isPlaying.value = player.isPlaying
+        // A fresh player always starts with shuffle off. If the user had
+        // shuffle on last session, restore it now so both the player and the
+        // UI flow reflect it. The onShuffleModeEnabledChanged listener (added
+        // below, but registered before any user action) persists this to prefs.
+        val restoredShuffle = repository.getShuffleEnabled()
+        if (restoredShuffle && !player.shuffleModeEnabled) {
+            player.shuffleModeEnabled = true
+        }
         _isShuffled.value = player.shuffleModeEnabled
         _repeatMode.value = when (player.repeatMode) {
             Player.REPEAT_MODE_ALL -> RepeatMode.ALL
@@ -585,6 +593,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 _isShuffled.value = shuffleModeEnabled
+                // Persist every real player-flag change so shuffle survives
+                // restarts. The manual-queue suppression path never flips the
+                // player flag, so this can't be clobbered by it.
+                repository.saveShuffleEnabled(shuffleModeEnabled)
             }
         })
 
