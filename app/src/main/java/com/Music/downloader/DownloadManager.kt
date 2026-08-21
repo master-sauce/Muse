@@ -52,7 +52,7 @@ class DownloadManager(private val context: Context) {
         val outputTemplate = "${downloadDir.absolutePath}/$taskId.%(ext)s"
 
         val request = YoutubeDLRequest(url)
-        request.addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+        request.addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestaudio[ext=m4a]/bestaudio/best")
         request.addOption("-o", outputTemplate)
         // Crucial: when the URL contains a `list=` parameter (as our playlist
         // entries do), yt-dlp would otherwise try to download the *entire*
