@@ -155,6 +155,13 @@ fun YouTubeSearchScreen(
                     .focusRequester(focusRequester),
                 placeholder   = { Text("Search for a song or artist") },
                 singleLine    = true,
+                // Mirror text direction for RTL queries (e.g. Hebrew/Arabic):
+                // the typed text and cursor flip to the start side while the
+                // leading/trailing icons stay put (Compose already mirrors
+                // the surrounding Row/layout under an RTL locale).
+                textStyle     = MaterialTheme.typography.bodyLarge.copy(
+                    textDirection = androidx.compose.ui.text.style.TextDirection.Content
+                ),
                 shape         = RoundedCornerShape(28.dp),
                 leadingIcon   = {
                     Icon(
@@ -272,8 +279,8 @@ fun YouTubeSearchScreen(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 "Type a song or artist — results load automatically.\n" +
-                                "Tap a result to hear a 30s preview, long-press for\n" +
-                                "the full title, or use the icons to copy / download",
+                                "Tap a result to copy its link, then paste via +\n" +
+                                "Tap ▶ to hear a 30s preview, or ⬇ to download",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = TextAlign.Center

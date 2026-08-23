@@ -176,7 +176,10 @@ fun PlaylistDetailScreen(
                                 unfocusedIndicatorColor = Color.Transparent,
                                 cursorColor = MaterialTheme.colorScheme.primary
                             ),
-                            textStyle = MaterialTheme.typography.bodyLarge
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                // Mirror direction for RTL queries (Hebrew/Arabic).
+                                textDirection = androidx.compose.ui.text.style.TextDirection.Content
+                            )
                         )
                     },
                     navigationIcon = {
