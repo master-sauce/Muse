@@ -44,6 +44,30 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.io.File
 import java.util.concurrent.TimeUnit
 
+/**
+ * State for the 30-second search-result audio preview.
+ *
+ * Driven by the YouTube-search screen: tapping a card downloads a short
+ * audio-only clip to a temp dir (NOT the library) and opens a mini preview
+ * player so the user can hear the song before deciding to download it fully.
+ */
+sealed interface PreviewState {
+    /** No preview active; sheet hidden. */
+    data object Idle : PreviewState
+    /** Clip is being fetched for [result]; sheet shows a spinner. */
+    data class Loading(val result: com.Music.downloader.SearchResult) : PreviewState
+    /** Clip ready and playing; [file] is the temp audio file. */
+    data class Ready(
+        val result: com.Music.downloader.SearchResult,
+        val file: File
+    ) : PreviewState
+    /** Fetch failed; [message] shown inline in the sheet. */
+    data class Error(
+        val result: com.Music.downloader.SearchResult,
+        val message: String
+    ) : PreviewState
+}
+
 enum class RepeatMode { NONE, ALL, ONE }
 
 /**
@@ -70,6 +94,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * is closed, backed by [com.Music.player.DownloadService].
      */
     private val repository: MusicRepository = DownloadState.repository()
+
+    // Guard the preview engine against a missing clip dir cleanup race: clips
+    // older than this are wiped on ViewModel init so cacheDir/previews never
+    // grows unbounded even if dismiss/crash paths leak files.
+    init {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val dir = File(getApplication<Application>().cacheDir, "previews")
+                val cutoff = System.currentTimeMillis() - TimeUnit.HOURS.toMillis(6)
+                dir.listFiles()?.forEach { f ->
+                    if (f.lastModified() < cutoff) f.delete()
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     // LRCLIB requires every client to identify itself with a User-Agent header
     // of the form "<AppName> vX.Y (https://...)". Without it the request is
@@ -176,6 +215,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _exoPlayer        = MutableStateFlow<Player?>(null)
     val exoPlayer: StateFlow<Player?> = _exoPlayer.asStateFlow()
+
+    // ── Search-result 30s preview player ─────────────────────────────────────
+    // A dedicated, throwaway ExoPlayer (separate from the main MediaController
+    // session) so previewing a clip never disturbs the user's real queue or
+    // playback position. The clip lives in cacheDir/previews (tmp), never in
+    // the library, and is deleted when the preview is dismissed/superseded.
+    private var previewPlayer: androidx.media3.exoplayer.ExoPlayer? = null
+    private var previewJob: Job? = null
+    private var previewProgressJob: Job? = null
+
+    private val _preview = MutableStateFlow<PreviewState>(PreviewState.Idle)
+    val preview: StateFlow<PreviewState> = _preview.asStateFlow()
+    private val _previewPlaying = MutableStateFlow(false)
+    val previewPlaying: StateFlow<Boolean> = _previewPlaying.asStateFlow()
+    private val _previewPosition = MutableStateFlow(0L)
+    val previewPosition: StateFlow<Long> = _previewPosition.asStateFlow()
+    private val _previewDuration = MutableStateFlow(0L)
+    val previewDuration: StateFlow<Long> = _previewDuration.asStateFlow()
 
     private val _isPlaying        = MutableStateFlow(false)
     val isPlaying                 = _isPlaying.asStateFlow()
@@ -884,6 +941,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearYouTubeSearch() {
         youtubeSearchJob?.cancel()
         _youtubeSearch.value = YouTubeSearchState()
+    }
+
+    // ── Search-result 30s preview ────────────────────────────────────────────
+    // Tapping a YouTube-search card kicks this off. The previous preview (if
+    // any) is stopped and its temp file deleted before the new one starts, so
+    // only one preview is ever active and tmp clips don't pile up.
+
+    /**
+     * Download the first 30s of [result]'s audio to a temp file and open the
+     * mini preview player. Safe to call repeatedly — each call supersedes the
+     * previous preview. The clip is stored in cacheDir/previews (tmp), never
+     * added to the songs library.
+     */
+    fun startPreview(result: com.Music.downloader.SearchResult) {
+        // Cancel any in-flight preview fetch + stop the current clip.
+        previewJob?.cancel()
+        stopPreviewPlayback(deleteFile = true)
+
+        _preview.value = PreviewState.Loading(result)
+        previewJob = viewModelScope.launch {
+            try {
+                val processId = "preview_" + System.currentTimeMillis()
+                val file = repository.downloadPreviewClip(result.url, processId)
+                if (!currentCoroutineContext().isActive) { file.delete(); return@launch }
+                _preview.value = PreviewState.Ready(result, file)
+                playPreviewFile(file)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _preview.value = PreviewState.Error(
+                    result, e.localizedMessage ?: "Preview failed"
+                )
+            }
+        }
+    }
+
+    /** Build (or reuse) the throwaway preview ExoPlayer and play [file]. */
+    private fun playPreviewFile(file: File) {
+        val app = getApplication<Application>()
+        val player = previewPlayer ?: androidx.media3.exoplayer.ExoPlayer.Builder(app).build().also { p ->
+            previewPlayer = p
+            p.addListener(object : Player.Listener {
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    _previewPlaying.value = playing
+                }
+                override fun onPlaybackStateChanged(state: Int) {
+                    if (state == Player.STATE_READY) {
+                        _previewDuration.value = p.duration.coerceAtLeast(0L)
+                    }
+                    if (state == Player.STATE_ENDED) {
+                        _previewPlaying.value = false
+                        p.seekTo(0)
+                        p.pause()
+                    }
+                }
+            })
+        }
+        // Pause the main player so the two never play over each other.
+        controller?.pause()
+
+        _previewPlaying.value = false
+        _previewPosition.value = 0L
+        _previewDuration.value = 0L
+        player.setMediaItem(MediaItem.fromUri(Uri.fromFile(file)))
+        player.prepare()
+        player.playWhenReady = true
+        startPreviewProgress()
+    }
+
+    private fun startPreviewProgress() {
+        previewProgressJob?.cancel()
+        previewProgressJob = viewModelScope.launch {
+            while (true) {
+                previewPlayer?.let { p ->
+                    _previewPosition.value = p.currentPosition.coerceAtLeast(0L)
+                    if (p.duration > 0) _previewDuration.value = p.duration
+                }
+                delay(200)
+            }
+        }
+    }
+
+    /** Toggle play/pause on the active preview clip. */
+    fun togglePreviewPlayback() {
+        val p = previewPlayer ?: return
+        if (p.isPlaying) p.pause() else {
+            // Restart from the top if the clip already played through.
+            if (p.playbackState == Player.STATE_ENDED) p.seekTo(0)
+            p.play()
+        }
+    }
+
+    /** Seek the active preview clip to [positionMs]. */
+    fun seekPreviewTo(positionMs: Long) {
+        previewPlayer?.seekTo(positionMs.coerceAtLeast(0L))
+        _previewPosition.value = positionMs.coerceAtLeast(0L)
+    }
+
+    /** Stop playback, release the player and (optionally) delete the tmp file. */
+    private fun stopPreviewPlayback(deleteFile: Boolean) {
+        val file = (_preview.value as? PreviewState.Ready)?.file
+        previewProgressJob?.cancel()
+        previewPlayer?.let { it.stop(); it.clearMediaItems() }
+        _previewPlaying.value = false
+        _previewPosition.value = 0L
+        _previewDuration.value = 0L
+        if (deleteFile) file?.delete()
+    }
+
+    /** Dismiss the preview sheet: stop playback, delete the tmp clip, hide UI. */
+    fun dismissPreview() {
+        previewJob?.cancel()
+        stopPreviewPlayback(deleteFile = true)
+        _preview.value = PreviewState.Idle
     }
 
     fun playSong(song: SongEntity) {
@@ -1703,6 +1874,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         progressJob?.cancel()
         playlistSongsJob?.cancel()
+        previewJob?.cancel()
+        previewProgressJob?.cancel()
+        // Release the throwaway preview player and delete any leftover tmp clip.
+        (_preview.value as? PreviewState.Ready)?.file?.delete()
+        previewPlayer?.release()
+        previewPlayer = null
         controllerFuture?.let { MediaController.releaseFuture(it) }
         // NOTE: we intentionally do NOT cancel downloads here — they live in
         // the app-scoped DownloadState and should keep running after the

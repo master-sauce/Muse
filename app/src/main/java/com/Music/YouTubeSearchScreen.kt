@@ -16,9 +16,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -269,8 +272,8 @@ fun YouTubeSearchScreen(
                             Spacer(Modifier.height(4.dp))
                             Text(
                                 "Type a song or artist — results load automatically.\n" +
-                                "Tap a result to copy its link, then paste via +\n" +
-                                "or use the download icon to save it to your library",
+                                "Tap a result to hear a 30s preview, long-press for\n" +
+                                "the full title, or use the icons to copy / download",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyMedium,
                                 textAlign = TextAlign.Center
@@ -287,7 +290,10 @@ fun YouTubeSearchScreen(
                             items(state.results, key = { it.url }) { result ->
                                 SearchResultRow(
                                     result,
-                                    onCopy = { copyLink(result) },
+                                    // Tap card = copy link. Play-icon button = fetch a
+                                    // 30s audio clip (tmp) + open the preview popup.
+                                    onTap = { copyLink(result) },
+                                    onPreview = { viewModel.startPreview(result) },
                                     onDownload = { viewModel.downloadSong(result.url) },
                                     onLongPress = { showPreview(result.title) }
                                 )
@@ -297,6 +303,15 @@ fun YouTubeSearchScreen(
                 }
             }
         }
+
+        // ── Preview player popup ───────────────────────────────────────────
+        // Shown whenever a preview is active (loading / ready / error). A
+        // centered dialog floats over the results; it stays up even while a
+        // new search runs behind it. Dismissed via its X button / outside tap.
+        val preview by viewModel.preview.collectAsState()
+        if (preview !is PreviewState.Idle) {
+            PreviewPlayerDialog(viewModel = viewModel)
+        }
     }
 }
 
@@ -304,7 +319,8 @@ fun YouTubeSearchScreen(
 @Composable
 private fun SearchResultRow(
     result: SearchResult,
-    onCopy: () -> Unit,
+    onTap: () -> Unit,
+    onPreview: () -> Unit,
     onDownload: () -> Unit,
     onLongPress: () -> Unit
 ) {
@@ -317,7 +333,7 @@ private fun SearchResultRow(
             // only one preview is on screen at a time. Tap still copies the
             // link, as before.
             .combinedClickable(
-                onClick = { onCopy() },
+                onClick = { onTap() },
                 onLongClick = onLongPress
             ),
         shape = RoundedCornerShape(16.dp),
@@ -395,10 +411,12 @@ private fun SearchResultRow(
 
             Spacer(Modifier.width(4.dp))
 
-            // Copy + download actions.
-            IconButton(onClick = onCopy) {
+            // Preview (play icon) + download actions. Tapping the card itself
+            // copies the link; this button fetches a 30s audio clip (tmp) and
+            // opens the preview popup so the user can hear the song first.
+            IconButton(onClick = onPreview) {
                 Icon(
-                    Icons.Default.ContentCopy, "Copy link",
+                    Icons.Default.PlayArrow, "Preview 30s",
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
@@ -416,4 +434,196 @@ private fun formatDuration(seconds: Long): String {
     val m = seconds / 60
     val s = seconds % 60
     return "%d:%02d".format(m, s)
+}
+
+private fun formatMs(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val m = totalSec / 60
+    val s = totalSec % 60
+    return "%d:%02d".format(m, s)
+}
+
+/**
+ * A centered popup mini player for the 30-second search-result preview.
+ *
+ * Shown whenever a preview is active. Renders three states:
+ *  - [PreviewState.Loading] : spinner + "Fetching preview…".
+ *  - [PreviewState.Ready]   : thumbnail/title, play/pause, seek slider, times.
+ *  - [PreviewState.Error]   : inline error text.
+ *
+ * The clip is a tmp audio file (cacheDir/previews), never added to the
+ * library. The X button, an outside tap, or a new preview dismisses it via
+ * [MainViewModel.dismissPreview], which stops playback and deletes the file.
+ */
+@Composable
+private fun PreviewPlayerDialog(viewModel: MainViewModel) {
+    val preview  by viewModel.preview.collectAsState()
+    val playing  by viewModel.previewPlaying.collectAsState()
+    val position by viewModel.previewPosition.collectAsState()
+    val duration by viewModel.previewDuration.collectAsState()
+
+    if (preview is PreviewState.Idle) return
+
+    // Centered popup dialog. onDismissRequest fires on outside tap / back —
+    // route it through dismissPreview so playback stops and the tmp clip is
+    // deleted exactly like the X button.
+    androidx.compose.ui.window.Dialog(onDismissRequest = { viewModel.dismissPreview() }) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 6.dp,
+            shadowElevation = 16.dp,
+            color = MaterialTheme.colorScheme.surfaceVariant
+        ) {
+            when (val p = preview) {
+                is PreviewState.Loading -> {
+                    Row(
+                        Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            Modifier.size(22.dp),
+                            strokeWidth = 2.5.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Fetching preview…",
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                p.result.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { viewModel.dismissPreview() }) {
+                            Icon(Icons.Default.Close, "Dismiss",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                is PreviewState.Error -> {
+                    Row(
+                        Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.LibraryMusic, null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Preview failed",
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Text(
+                                p.message,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        IconButton(onClick = { viewModel.dismissPreview() }) {
+                            Icon(Icons.Default.Close, "Dismiss",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                is PreviewState.Ready -> {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Thumbnail (48dp, rounded) with neutral fallback.
+                            Box(
+                                Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(MaterialTheme.colorScheme.surface),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (p.result.thumbnailUrl != null) {
+                                    AsyncImage(
+                                        model = p.result.thumbnailUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(Icons.Default.LibraryMusic, null,
+                                        tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    p.result.title,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "30s preview · ${p.result.uploader}",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            // Play / pause the preview clip.
+                            IconButton(onClick = { viewModel.togglePreviewPlayback() }) {
+                                Icon(
+                                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    if (playing) "Pause" else "Play",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(onClick = { viewModel.dismissPreview() }) {
+                                Icon(Icons.Default.Close, "Dismiss",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+
+                        // Seek slider + elapsed / total. Only enabled once the
+                        // player has reported a duration (>0).
+                        val durSec = (duration / 1000f).coerceAtLeast(0.001f)
+                        val posSec = (position / 1000f).coerceIn(0f, durSec)
+                        Slider(
+                            value = posSec,
+                            onValueChange = { viewModel.seekPreviewTo((it * 1000).toLong()) },
+                            valueRange = 0f..durSec,
+                            enabled = duration > 0,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(28.dp)
+                        )
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(
+                                formatMs(position),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                formatMs(duration),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                PreviewState.Idle -> { /* unreachable — guarded above */ }
+            }
+        }
+    }
 }

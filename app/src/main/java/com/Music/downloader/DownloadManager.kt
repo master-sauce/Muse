@@ -77,6 +77,52 @@ class DownloadManager(private val context: Context) {
     }
 
     /**
+     * Download only the first [maxSeconds] of [url] as an audio-only temp file
+     * for the search-screen "tap to preview" feature. The clip lands in
+     * `cacheDir/previews/` (NOT the music `downloads/` dir) so it is never
+     * scanned into the user's library and is auto-cleanable by the OS.
+     *
+     * Uses yt-dlp's `--download-sections "*0-<n>"` (needs ffmpeg, which the
+     * youtubedl-ffmpeg AAR bundles) together with `-f bestaudio` and `-x
+     * --audio-format mp3` so only audio is fetched and stored.
+     *
+     * Returns the audio [File]. Throws on failure / cancellation.
+     */
+    suspend fun downloadPreviewClip(
+        url: String,
+        processId: String,
+        maxSeconds: Int = 30
+    ): File = withContext(Dispatchers.IO) {
+        val previewDir = File(context.cacheDir, "previews")
+        if (!previewDir.exists()) previewDir.mkdirs()
+
+        // Stable, filesystem-safe per-URL name so a repeated tap on the same
+        // result re-downloads to a fresh file without colliding with any clip
+        // currently loaded in the preview player.
+        val base = "prev_" + url.hashCode().toString(16) + "_" + System.currentTimeMillis()
+        val outputTemplate = "${previewDir.absolutePath}/$base.%(ext)s"
+
+        val request = YoutubeDLRequest(url)
+        request.addOption("-f", "bestaudio[ext=m4a]/bestaudio/best")
+        request.addOption("-x")
+        request.addOption("--audio-format", "mp3")
+        request.addOption("--download-sections", "*0-$maxSeconds")
+        request.addOption("--force-keyframes-at-cuts")
+        request.addOption("--no-playlist")
+        request.addOption("-o", outputTemplate)
+
+        val before = previewDir.listFiles()?.map { it.absolutePath }?.toSet() ?: emptySet()
+
+        YoutubeDL.getInstance().execute(request, processId, null)
+
+        val after = previewDir.listFiles()?.map { it.absolutePath }?.toSet() ?: emptySet()
+        val newFilePath = after.subtract(before).find { File(it).name.startsWith(base) }
+            ?: throw Exception("Preview clip not found for $url")
+
+        File(newFilePath)
+    }
+
+    /**
      * Lightweight video info (only the fields we persist on a song).
      *
      * Returned by [getVideoInfo] for the batch playlist download path, where we

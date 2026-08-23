@@ -113,6 +113,14 @@ class MusicRepository(
         downloadManager.searchYouTube(query)
 
     /**
+     * Download only the first 30s of [url]'s audio to a temp file for the
+     * search-screen preview player. The clip goes to cacheDir/previews (tmp),
+     * never the library. Cancellable via [processId].
+     */
+    suspend fun downloadPreviewClip(url: String, processId: String): java.io.File =
+        downloadManager.downloadPreviewClip(url, processId)
+
+    /**
      * Write the fetched playlist entries to a plain-text file, one URL per line,
      * in playlist order. The file is placed in the app's external downloads
      * directory so it can be shared via the existing FileProvider.
