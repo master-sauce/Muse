@@ -523,6 +523,13 @@ fun PlayerContent(
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             showQueuePanel = !showQueuePanel
                                         },
+                                        onDoubleClick = {
+                                            // Double-tap the artwork toggles the
+                                            // "Up Next" queue panel, same as
+                                            // long-press (more discoverable).
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            showQueuePanel = !showQueuePanel
+                                        },
                                         onClick = {
                                             // Tap the artwork to dismiss the
                                             // queue panel if it's open (a tap
