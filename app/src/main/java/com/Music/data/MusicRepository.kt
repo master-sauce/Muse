@@ -13,6 +13,7 @@ import com.Music.downloader.PlaylistEntry
 import com.Music.downloader.SearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -30,6 +31,10 @@ class MusicRepository(
 
     fun getPlaylistSongs(playlistId: Long): Flow<List<SongEntity>> =
         playlistDao.getSongsInPlaylist(playlistId)
+
+    /** One-shot snapshot of a playlist's songs (for session restore). */
+    suspend fun getPlaylistSongsOnce(playlistId: Long): List<SongEntity> =
+        withContext(Dispatchers.IO) { playlistDao.getSongsInPlaylist(playlistId).first() }
 
     suspend fun getPlaylistById(id: Long): PlaylistEntity? = playlistDao.getPlaylistById(id)
 
@@ -421,15 +426,24 @@ class MusicRepository(
     }
 
     // ── Last played song ───────────────────────────────────────────────────
-    fun saveLastPlayed(songId: String, position: Long) {
+    // [playlistId] records which playlist the song was playing from (null =
+    // Library / ad-hoc). On restore we rebuild the timeline from that
+    // playlist's songs — not the whole library — so shuffle / next / previous
+    // stay inside the playlist the user was actually listening to.
+    fun saveLastPlayed(songId: String, position: Long, playlistId: Long? = null) {
         prefs.edit()
             .putString("last_song_id", songId)
             .putLong("last_position", position)
+            // -1 = no playlist (library). Stored as long so null round-trips.
+            .putLong("last_playlist_id", playlistId ?: -1L)
             .apply()
     }
 
     fun getLastPlayedSongId(): String? = prefs.getString("last_song_id", null)
     fun getLastPlayedPosition(): Long = prefs.getLong("last_position", 0L)
+    /** null = was playing from Library / ad-hoc list, not a playlist. */
+    fun getLastPlayedPlaylistId(): Long? =
+        prefs.getLong("last_playlist_id", -1L).takeIf { it != -1L }
 
     // ── Shuffle preference ─────────────────────────────────────────────────
     // Persisted so the player's shuffle mode survives app restarts. Saved from

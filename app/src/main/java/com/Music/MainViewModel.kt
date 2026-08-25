@@ -480,12 +480,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (player.mediaItemCount == 0) {
                 val lastId = repository.getLastPlayedSongId()
                 val lastPos = repository.getLastPlayedPosition()
+                // The playlist (if any) the last-played song was heard from.
+                // Restoring the timeline from that playlist — instead of the
+                // whole library — keeps shuffle / next / previous scoped to
+                // the songs the user actually queued up.
+                val lastPlaylistId = repository.getLastPlayedPlaylistId()
                 if (lastId != null) {
                     val song = repository.getSongById(lastId)
                     if (song != null) {
-                        val items = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
+                        val sourceSongs = if (lastPlaylistId != null) {
+                            val pl = repository.getPlaylistSongsOnce(lastPlaylistId)
+                            // Fall back to library if the playlist is gone or
+                            // no longer contains the song (user deleted it).
+                            if (pl.any { it.id == lastId }) pl else _songs.value
+                        } else _songs.value
+                        val items = sourceSongs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
                         val startIndex = items.indexOfFirst { it.mediaId == lastId }.coerceAtLeast(0)
                         if (items.isNotEmpty()) {
+                            // Reflect the restored context so the player's
+                            // overflow "Remove from playlist" and subsequent
+                            // saveLastPlayed calls keep the right playlist id.
+                            _playingPlaylistId.value =
+                                if (sourceSongs === _songs.value) null else lastPlaylistId
                             player.setMediaItems(items, startIndex, lastPos)
                             player.playWhenReady = false
                             player.prepare()
@@ -522,11 +538,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             _playbackProgress.value = currentPos.toFloat() / dur
                         }
 
-                        // Replace the single-item playlist with the full library
-                        // so next/previous navigation works. Preserve the user's
-                        // current play/pause state — if they unpaused from the
-                        // notification, keep playing.
-                        val items = _songs.value.filter { File(it.filePath).exists() }
+                        // Replace the single-item playlist with the real context
+                        // (playlist songs if the last session was a playlist,
+                        // else the full library) so next/previous navigation and
+                        // shuffle stay scoped to what the user was listening to.
+                        // Preserve the user's current play/pause state — if they
+                        // unpaused from the notification, keep playing.
+                        val lastPlaylistId = repository.getLastPlayedPlaylistId()
+                        val sourceSongs = if (lastPlaylistId != null) {
+                            val pl = repository.getPlaylistSongsOnce(lastPlaylistId)
+                            if (pl.any { it.id == currentMediaId }) pl else _songs.value
+                        } else _songs.value
+                        _playingPlaylistId.value =
+                            if (sourceSongs === _songs.value) null else lastPlaylistId
+                        val items = sourceSongs.filter { File(it.filePath).exists() }
                             .map { buildMediaItem(it) }
                         val startIndex = items.indexOfFirst { it.mediaId == currentMediaId }
                             .coerceAtLeast(0)
@@ -566,7 +591,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _isPlaying.value = playing
                 if (playing) startProgressUpdate() else {
                     stopProgressUpdate()
-                    _currentSong.value?.let { repository.saveLastPlayed(it.id, player.currentPosition) }
+                    _currentSong.value?.let {
+                        repository.saveLastPlayed(it.id, player.currentPosition, _playingPlaylistId.value)
+                    }
                 }
             }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -623,7 +650,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 lastMediaItemIndex = player.currentMediaItemIndex
-                song?.let { repository.saveLastPlayed(it.id, currentPos) }
+                song?.let { repository.saveLastPlayed(it.id, currentPos, _playingPlaylistId.value) }
                 updateQueue()
             }
             override fun onPlaybackStateChanged(state: Int) {
@@ -716,7 +743,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         // Save position every 5 seconds to SharedPreferences
                         val now = System.currentTimeMillis()
                         if (now - lastSaveTime > 5000) {
-                            _currentSong.value?.let { repository.saveLastPlayed(it.id, pos) }
+                            _currentSong.value?.let { repository.saveLastPlayed(it.id, pos, _playingPlaylistId.value) }
                             lastSaveTime = now
                         }
                     }
@@ -1252,8 +1279,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      *   the big Player's overflow menu can offer a "Remove from playlist"
      *   action for the currently-playing song. Pass null (the default) for
      *   Library / ad-hoc lists.
+     * @param shuffle when true, force shuffle ON for this list (used by the
+     *   "Shuffle" buttons in Library / PlaylistDetail). Set directly on the
+     *   player — NOT via [toggleShuffle] — because toggle would (a) turn
+     *   shuffle OFF if it was already on, and (b) be swallowed by the
+     *   manual-queue pending-restore path when a queue was active. When false,
+     *   the current shuffle state is left untouched.
      */
-    fun playSongList(songs: List<SongEntity>, startIndex: Int = 0, fromPlaylistId: Long? = null) {
+    fun playSongList(
+        songs: List<SongEntity>,
+        startIndex: Int = 0,
+        fromPlaylistId: Long? = null,
+        shuffle: Boolean = false
+    ) {
         manualQueueIds.clear()
         _isQueueMode.value = false
         // Same as [playSong]: fresh playback discards the manual queue and any
@@ -1263,6 +1301,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         val items  = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
+        if (shuffle && !player.shuffleModeEnabled) {
+            // onShuffleModeEnabledChanged persists this to prefs + updates
+            // _isShuffled, so the player's shuffle button reflects it too.
+            player.shuffleModeEnabled = true
+            _isShuffled.value = true
+        }
         player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
         player.prepare(); player.play()
         updateQueue()
@@ -1302,7 +1346,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Update flows immediately for a more responsive UI
             _currentPosition.value = newPosition
             _playbackProgress.value = fraction
-            _currentSong.value?.let { repository.saveLastPlayed(it.id, newPosition) }
+            _currentSong.value?.let { repository.saveLastPlayed(it.id, newPosition, _playingPlaylistId.value) }
         }
     }
 

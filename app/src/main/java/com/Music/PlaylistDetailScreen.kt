@@ -413,8 +413,10 @@ fun PlaylistDetailScreen(
                         }
                         OutlinedButton(
                             onClick  = {
-                                viewModel.toggleShuffle()
-                                viewModel.playSongList(filteredSongs, 0, fromPlaylistId = playlistId)
+                                // Force-shuffle this playlist: the param sets
+                                // the player flag directly (toggleShuffle could
+                                // turn it off, or be swallowed by queue mode).
+                                viewModel.playSongList(filteredSongs, 0, fromPlaylistId = playlistId, shuffle = true)
                             },
                             modifier = Modifier.weight(1f),
                             shape    = RoundedCornerShape(12.dp)
