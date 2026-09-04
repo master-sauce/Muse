@@ -93,14 +93,11 @@ fun LibraryScreen(
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
     var showConfirmDeleteSelected by remember { mutableStateOf(false) }
     var showShareMethodDialog  by remember { mutableStateOf(false) }
-    var showYouTubeChooserDialog by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-
-    val context = LocalContext.current
 
     // ── Back-button handling ──────────────────────────────────────────────
     // Priority: open dialogs/sheets → selection mode → search → non-Songs
@@ -110,7 +107,6 @@ fun LibraryScreen(
     BackHandler(enabled = showAddSelectedToPlaylist) { showAddSelectedToPlaylist = false }
     BackHandler(enabled = showConfirmDeleteSelected) { showConfirmDeleteSelected = false }
     BackHandler(enabled = showShareMethodDialog) { showShareMethodDialog = false }
-    BackHandler(enabled = showYouTubeChooserDialog) { showYouTubeChooserDialog = false }
     BackHandler(enabled = inSelection) { viewModel.clearSelection() }
     BackHandler(enabled = isSearching && selectedTab == 0) {
         isSearching = false
@@ -241,10 +237,10 @@ fun LibraryScreen(
                     },
                     navigationIcon = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { showYouTubeChooserDialog = true }) {
+                            IconButton(onClick = onNavigateToYouTubeSearch) {
                                 Icon(
                                     Icons.Default.SmartDisplay,
-                                    contentDescription = "Open YouTube",
+                                    contentDescription = "Search YouTube",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -611,61 +607,6 @@ fun LibraryScreen(
                 confirmButton = {},
                 dismissButton = {
                     TextButton(onClick = { showShareMethodDialog = false }) { Text("Cancel") }
-                }
-            )
-        }
-
-        if (showYouTubeChooserDialog) {
-            AlertDialog(
-                onDismissRequest = { showYouTubeChooserDialog = false },
-                containerColor = MaterialTheme.colorScheme.background,
-                title   = { Text("YouTube") },
-                text    = {
-                    Column {
-                        // Open the YouTube app (or fall back to the browser).
-                        ListItem(
-                            modifier = Modifier.clickable {
-                                showYouTubeChooserDialog = false
-                                openYouTube(context)
-                            },
-                            headlineContent = {
-                                Text("Open YouTube app",
-                                    color = MaterialTheme.colorScheme.primary)
-                            },
-                            supportingContent = {
-                                Text("Launch the YouTube app (or browser)",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.SmartDisplay, null,
-                                    tint = MaterialTheme.colorScheme.primary)
-                            }
-                        )
-                        HorizontalDivider()
-                        // Search YouTube in-app and copy a link to paste via "+".
-                        ListItem(
-                            modifier = Modifier.clickable {
-                                showYouTubeChooserDialog = false
-                                onNavigateToYouTubeSearch()
-                            },
-                            headlineContent = {
-                                Text("Search YouTube",
-                                    color = MaterialTheme.colorScheme.primary)
-                            },
-                            supportingContent = {
-                                Text("Search a song, tap it to copy its link, then paste via +",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            },
-                            leadingContent = {
-                                Icon(Icons.Default.Search, null,
-                                    tint = MaterialTheme.colorScheme.primary)
-                            }
-                        )
-                    }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = { showYouTubeChooserDialog = false }) { Text("Cancel") }
                 }
             )
         }
