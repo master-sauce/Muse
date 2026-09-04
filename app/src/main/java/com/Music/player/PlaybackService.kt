@@ -1,6 +1,10 @@
 package com.Music.player
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.net.Uri
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -22,6 +26,19 @@ import java.io.File
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Pauses playback when audio is about to become "noisy" — i.e. the user
+    // unplugs headphones or disconnects a Bluetooth audio device. Matches the
+    // behavior of YouTube Music / Spotify, which stop rather than blasting out
+    // the phone speaker.
+    private val becomingNoisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                mediaSession?.player?.pause()
+            }
+        }
+    }
+    private var noisyReceiverRegistered = false
 
     override fun onCreate() {
         super.onCreate()
@@ -79,7 +96,25 @@ class PlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        // Register the "becoming noisy" receiver once the service is actually
+        // running so we can pause when headphones / BT disconnect mid-playback.
+        if (!noisyReceiverRegistered) {
+            registerReceiver(
+                becomingNoisyReceiver,
+                IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+            )
+            noisyReceiverRegistered = true
+        }
+        return START_NOT_STICKY
+    }
+
     override fun onDestroy() {
+        if (noisyReceiverRegistered) {
+            runCatching { unregisterReceiver(becomingNoisyReceiver) }
+            noisyReceiverRegistered = false
+        }
         scope.coroutineContext.cancel()
         mediaSession?.run {
             player.release()
