@@ -1229,6 +1229,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Move a media item already in the player's timeline into the manual queue
+     * (appended at the end of the queue zone, after any already-queued songs and
+     * before the remaining playlist / library songs) — the timeline equivalent
+     * of [addToQueue]. Used by the big player's "Up Next" panel when the user
+     * swipes a row start-to-end (left-to-right): the opposite direction from the
+     * end-to-start remove gesture. Resolves [item]'s media id to its real
+     * timeline index (which may differ from the row's list position under
+     * shuffle), pulls it out of its current spot, and re-inserts it at
+     * [queueZoneEndIndex]. Marks the song as manually queued (via
+     * [manualQueueIds] and [enterManualQueueMode]) so it's consumed after it
+     * plays, matching [addToQueue] semantics.
+     */
+    fun queueTimelineItem(item: MediaItem) {
+        val player = controller ?: return
+        val mediaId = item.mediaId
+        var fromIndex = -1
+        for (i in 0 until player.mediaItemCount) {
+            if (player.getMediaItemAt(i).mediaId == mediaId) { fromIndex = i; break }
+        }
+        if (fromIndex < 0) return
+        if (fromIndex == player.currentMediaItemIndex) return
+        enterManualQueueMode()
+        val captured = player.getMediaItemAt(fromIndex)
+        player.removeMediaItem(fromIndex)
+        player.addMediaItem(queueZoneEndIndex(), captured)
+        manualQueueIds.add(mediaId)
+        updateQueue()
+    }
+
     fun playNext(song: SongEntity) {
         val player = controller ?: return
         if (!File(song.filePath).exists()) return

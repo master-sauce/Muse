@@ -48,8 +48,6 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.Music.data.local.isVideo
 import com.Music.data.remote.LyricsState
-import sh.calvin.reorderable.ReorderableItem
-import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @OptIn(UnstableApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -575,7 +573,7 @@ fun PlayerContent(
                                 viewModel.playTimelineItem(item)
                                 showQueuePanel = false
                             },
-                            onMove = { from, to -> viewModel.moveUpNextItem(from, to) },
+                            onQueueItem = { item -> viewModel.queueTimelineItem(item) },
                             onRemove = { item -> viewModel.removeUpNextItem(item) },
                             onClose = { showQueuePanel = false },
                             modifier = Modifier
@@ -813,15 +811,17 @@ fun PlayerContent(
  * [MainViewModel.playTimelineItem]); the panel itself is dismissed by the
  * caller. Capped at [maxHeight] and scrolls internally for long queues.
  *
- * Swipe a row from end-to-start (right-to-left) to remove it from the timeline
- * via [onRemove] — mirrors the Queue tab's slide-to-remove gesture.
+ * Swipe a row end-to-start (right-to-left) to remove it from the timeline via
+ * [onRemove] (mirrors the Queue tab), or start-to-end (left-to-right) to add it
+ * to the manual queue (appended after any already-queued songs) via
+ * [onQueueItem]. Reordering via drag is intentionally disabled.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun UpNextPanel(
     items: List<MediaItem>,
     onPlay: (MediaItem) -> Unit,
-    onMove: (fromListIndex: Int, toListIndex: Int) -> Unit,
+    onQueueItem: (MediaItem) -> Unit,
     onRemove: (MediaItem) -> Unit,
     modifier: Modifier = Modifier,
     onClose: (() -> Unit)? = null
@@ -884,76 +884,74 @@ private fun UpNextPanel(
                     )
                 }
             } else {
-                // Drag-to-reorder, mirroring the library's Queue tab: the
-                // reorderable state reports from/to LazyColumn indices, which
-                // line up 1:1 with the items list, so they're forwarded
-                // straight to onMove (and ultimately moveUpNextItem).
+                // Swipe gestures only (reordering via drag is disabled):
+                //  • end-to-start (right-to-left) → remove the row from the
+                //    timeline via onRemove (mirrors the Queue tab).
+                //  • start-to-end (left-to-right) → add the row to the manual
+                //    queue (appended after any already-queued songs) via
+                //    onQueueItem.
+                //
+                // confirmValueChange returns false for both on purpose: we
+                // trigger the action ourselves and never want the box to *park*
+                // at the dismissed value. If it did, its colored background
+                // would stay drawn (and could be inherited by the slot that
+                // slides up into the dismissed row's place) — the "ghost that
+                // won't go away" bug. By returning false the box always snaps
+                // back toward rest; for removal the list then drops the item
+                // (disposing the row's composition before any dismissed state
+                // can linger), and for queue-add the row simply returns to its
+                // place (now relocated to the queue zone by the viewmodel). Pass
+                // `item` (identity), not `index`: the row's positional index can
+                // be stale by the time the confirm callback fires.
                 val lazyListState = rememberLazyListState()
-                val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
-                    onMove(from.index, to.index)
-                }
                 LazyColumn(state = lazyListState, modifier = Modifier.fillMaxWidth()) {
                     itemsIndexed(items, key = { _, item -> item.mediaId }) { index, item ->
-                        ReorderableItem(reorderableState, key = item.mediaId) { isDragging ->
-                            // Swipe end-to-start (right-to-left) to remove the
-                            // row from the timeline — mirrors the Queue tab.
-                            //
-                            // confirmValueChange returns false on purpose: we
-                            // trigger the removal ourselves via onRemove(), and
-                            // we never want the box to *park* at the dismissed
-                            // value. If it did, its red background would stay
-                            // drawn (and could be inherited by the slot that
-                            // slides up into the dismissed row's place) — the
-                            // "red ghost that won't go away" bug. By returning
-                            // false the box always snaps back toward rest; the
-                            // list then drops the item, disposing the row's
-                            // composition before any dismissed state can linger.
-                            // Pass `item` (identity), not `index`: the row's
-                            // positional index can be stale by the time the
-                            // confirm callback fires (the box now snaps back
-                            // instead of being disposed, so the closure may run
-                            // after the list has shifted). Removing by media id
-                            // always targets the exact swiped row.
-                            val dismissState = rememberSwipeToDismissBoxState(
-                                confirmValueChange = {
-                                    if (it == SwipeToDismissBoxValue.EndToStart) {
-                                        onRemove(item)
-                                    }
-                                    false
+                        val dismissState = rememberSwipeToDismissBoxState(
+                            confirmValueChange = {
+                                when (it) {
+                                    SwipeToDismissBoxValue.StartToEnd -> onQueueItem(item)
+                                    SwipeToDismissBoxValue.EndToStart -> onRemove(item)
+                                    else -> {}
                                 }
-                            )
-                            SwipeToDismissBox(
-                                state = dismissState,
-                                enableDismissFromStartToEnd = false,
-                                backgroundContent = {
-                                    Box(
-                                        Modifier
-                                            .fillMaxSize()
-                                            .background(MaterialTheme.colorScheme.errorContainer)
-                                            .padding(horizontal = 20.dp),
-                                        contentAlignment = Alignment.CenterEnd
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Delete, null,
-                                            tint = MaterialTheme.colorScheme.error
+                                false
+                            }
+                        )
+                        SwipeToDismissBox(
+                            state = dismissState,
+                            backgroundContent = {
+                                val isQueueAdd =
+                                    dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            if (isQueueAdd) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.errorContainer
                                         )
-                                    }
+                                        .padding(horizontal = 20.dp),
+                                    contentAlignment =
+                                        if (isQueueAdd) Alignment.CenterStart else Alignment.CenterEnd
+                                ) {
+                                    Icon(
+                                        if (isQueueAdd) Icons.Default.PlaylistAdd else Icons.Default.Delete,
+                                        if (isQueueAdd) "Add to queue" else "Remove",
+                                        tint = if (isQueueAdd) MaterialTheme.colorScheme.primary
+                                               else MaterialTheme.colorScheme.error
+                                    )
                                 }
-                            ) {
-                                UpNextRow(
-                                    position = index + 1,
-                                    item = item,
-                                    isDragging = isDragging,
-                                    dragHandleModifier = Modifier.draggableHandle(),
-                                    onClick = { onPlay(item) }
-                                )
                             }
-                            if (index < items.lastIndex) {
-                                HorizontalDivider(
-                                    Modifier.padding(horizontal = 16.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                )
-                            }
+                        ) {
+                            UpNextRow(
+                                position = index + 1,
+                                item = item,
+                                onClick = { onPlay(item) }
+                            )
+                        }
+                        if (index < items.lastIndex) {
+                            HorizontalDivider(
+                                Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                            )
                         }
                     }
                 }
@@ -966,19 +964,14 @@ private fun UpNextPanel(
 private fun UpNextRow(
     position: Int,
     item: MediaItem,
-    isDragging: Boolean,
-    dragHandleModifier: Modifier,
     onClick: () -> Unit
 ) {
-    val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "upNextDragElev")
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(elevation, RoundedCornerShape(12.dp))
-            // Opaque surface at rest so the SwipeToDismissBox's red dismiss
-            // background (and the trash icon behind it) stay hidden until the
-            // user actually swipes — the content layer slides away to reveal
-            // them. Mirrors the Queue tab's row treatment.
+            // Opaque surface at rest so the SwipeToDismissBox's colored dismiss
+            // background (and the icon behind it) stay hidden until the user
+            // actually swipes — the content layer slides away to reveal them.
             .background(MaterialTheme.colorScheme.surface)
             .clickable(onClick = onClick),
         headlineContent = {
@@ -1018,14 +1011,6 @@ private fun UpNextRow(
                     )
                 }
             }
-        },
-        trailingContent = {
-            Icon(
-                Icons.Default.DragHandle,
-                "Reorder",
-                modifier = dragHandleModifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-            )
         },
         colors = ListItemDefaults.colors(containerColor = Color.Transparent)
     )
