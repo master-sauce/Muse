@@ -325,6 +325,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val manualQueueIds = mutableSetOf<String>()
 
+    // ── Swipe-removed-from-Up-Next tracking ─────────────────────────────────
+    // When shuffle is ON, [removeUpNextItem] can't push the swiped song to the
+    // end of the timeline (moveMediaItem under shuffle re-rolls the ShuffleOrder
+    // — the original "swipe-to-remove reshuffles everything" bug), so it drops
+    // the item outright. That would strand the song out of this playback session
+    // forever (until playback restarts from the source list). To bring it back on
+    // demand, we remember the ids here and [reshuffle] re-injects them into the
+    // "rest" bucket before re-rolling — so pressing the Up Next reshuffle button
+    // returns the removed songs to the upcoming rotation. Cleared on any fresh
+    // playback entry point (playSong / playSongList) since a new list discards
+    // the old removed-set context anyway.
+    private val removedFromUpNextIds = mutableSetOf<String>()
+
     private val _lyrics = MutableStateFlow<LyricsState>(LyricsState.Idle)
     val lyrics: StateFlow<LyricsState> = _lyrics.asStateFlow()
 
@@ -1135,6 +1148,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playSong(song: SongEntity) {
         manualQueueIds.clear()
+        // Fresh playback rebuilds the timeline from the source list, so any
+        // songs the user swipe-removed from Up Next last session are back in
+        // the list anyway — clear the removed-set so it doesn't carry stale ids
+        // into a reshuffle on the new list.
+        removedFromUpNextIds.clear()
         _isQueueMode.value = false
         // Starting fresh playback discards the manual queue, so any saved
         // shuffle-restore intent is obsolete. Shuffle state is left as-is on
@@ -1373,6 +1391,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         shuffle: Boolean = false
     ) {
         manualQueueIds.clear()
+        // Same as [playSong]: fresh playback rebuilds the timeline from the
+        // source list, so the swipe-removed set is obsolete — clear it.
+        removedFromUpNextIds.clear()
         _isQueueMode.value = false
         // Same as [playSong]: fresh playback discards the manual queue and any
         // saved shuffle-restore intent.
@@ -1522,6 +1543,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val rest = ArrayList<MediaItem>(count - restStart)
         for (i in restStart until count) rest.add(p.getMediaItemAt(i))
+
+        // Re-inject any songs the user swipe-removed from Up Next while shuffle
+        // was on (see [removeUpNextItem]). They were dropped from the timeline
+        // to avoid re-rolling the ShuffleOrder on a move; pressing reshuffle is
+        // the explicit "give me a fresh shuffle" signal, so bring them back into
+        // the re-roll bucket now. Clear the set once they're re-added — they're
+        // back in the timeline, so a future remove would just re-record them.
+        if (removedFromUpNextIds.isNotEmpty()) {
+            val songsById = _songs.value.associateBy { it.id }
+            for (id in removedFromUpNextIds) {
+                val song = songsById[id] ?: continue
+                if (!File(song.filePath).exists()) continue
+                rest.add(buildMediaItem(song))
+            }
+            removedFromUpNextIds.clear()
+        }
+
         rest.shuffle()
 
         // Batched remove + batched add = 2 IPCs total. Current item sits before
@@ -1701,17 +1739,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         val mediaId = item.mediaId
 
-        // Resolve the media id to its real timeline index. Instead of deleting
-        // the item outright, MOVE it to the very end of the timeline so it
-        // drops out of the visible Up Next window (the panel only lists items
-        // after the current index, and ExoPlayer walks the timeline in order)
-        // but stays in the list. That way the song can reappear in a later
-        // reshuffle (reshuffle re-rolls the "rest" bucket, which now includes
-        // this pushed-back song) instead of being gone forever.
+        // Resolve the media id to its real timeline index. Two paths:
+        //  • Shuffle OFF: MOVE the item to the very end of the timeline so it
+        //    drops out of the visible Up Next window (the panel only lists
+        //    items after the current index, and ExoPlayer walks the timeline in
+        //    order) but stays in the list — so the song can reappear in a later
+        //    reshuffle (reshuffle re-rolls the "rest" bucket, which now
+        //    includes this pushed-back song) without being gone for the rest
+        //    of the session. No ShuffleOrder regeneration in non-shuffle mode.
+        //  • Shuffle ON: REMOVE the item from the timeline outright. Under
+        //    shuffle mode, moveMediaItem regenerates ExoPlayer's ShuffleOrder
+        //    (cloneAndInsert drops the moved item at a RANDOM spot in the
+        //    traversal, not the end), which re-rolls the order of every other
+        //    upcoming song — the "swipe-to-remove reshuffles the whole list"
+        //    bug. removeMediaItem only does a cloneAndRemove, which preserves
+        //    the relative order of the remaining items, so the rest of Up Next
+        //    stays put. The removed song is remembered in
+        //    [removedFromUpNextIds] so [reshuffle] can re-inject it into the
+        //    next re-roll (and it's still in the library / playlist DB, so a
+        //    fresh playback from the source list always brings it back too).
         for (i in 0 until player.mediaItemCount) {
             if (player.getMediaItemAt(i).mediaId == mediaId) {
-                val lastIndex = player.mediaItemCount - 1
-                if (i < lastIndex) player.moveMediaItem(i, lastIndex)
+                if (player.shuffleModeEnabled) {
+                    player.removeMediaItem(i)
+                    removedFromUpNextIds.add(mediaId)
+                } else {
+                    val lastIndex = player.mediaItemCount - 1
+                    if (i < lastIndex) player.moveMediaItem(i, lastIndex)
+                }
                 break
             }
         }
