@@ -55,7 +55,8 @@ fun LyricsScreen(viewModel: MainViewModel, onNavigateBack: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     currentSong?.let {
                         Text(it.title, style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            fontWeight = FontWeight.SemiBold, maxLines = 1,
+                            color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
                 Spacer(Modifier.size(48.dp))
