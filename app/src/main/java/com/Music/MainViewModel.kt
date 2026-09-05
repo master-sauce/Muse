@@ -530,6 +530,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             player.setMediaItems(items, startIndex, lastPos)
                             player.playWhenReady = false
                             player.prepare()
+                            _timelineSize.value = items.size
                             _currentSong.value = song
                             _currentPosition.value = lastPos
                             _duration.value = song.duration
@@ -584,6 +585,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             player.setMediaItems(items, startIndex, currentPos)
                             player.playWhenReady = wasPlaying
                             player.prepare()
+                            _timelineSize.value = items.size
                             if (wasPlaying) player.play()
                         }
                     }
@@ -767,7 +769,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else emptyList()
         _upNext.value = upList
-        _timelineSize.value = player.mediaItemCount
+        // NOTE: _timelineSize intentionally NOT updated here. It tracks the
+        // size of the source list (playlist / library) the user started
+        // playback from, set at the setMediaItems entry points. Tying it to
+        // mediaItemCount would make the Up Next counter drop every time the
+        // user swipe-removes an upcoming song — we want it to stay fixed.
     }
 
     private fun startProgressUpdate() {
@@ -1142,6 +1148,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         val startIndex = items.indexOfFirst { it.mediaId == song.id }.coerceAtLeast(0)
         player.setMediaItems(items, startIndex, 0L)
+        _timelineSize.value = items.size
         player.prepare(); player.play()
         updateQueue()
     }
@@ -1381,6 +1388,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isShuffled.value = true
         }
         player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
+        _timelineSize.value = items.size
         player.prepare(); player.play()
         updateQueue()
     }
