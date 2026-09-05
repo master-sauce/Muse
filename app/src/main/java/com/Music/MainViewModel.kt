@@ -1563,14 +1563,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Rebuild the player's timeline from the original source list (the
-     * playlist the current playback came from, or the full library) in its
-     * natural order — undoing a [reshuffle]-baked shuffled timeline so Up Next
-     * returns to regular order when the user turns shuffle OFF. Preserves the
-     * currently-playing song, its position, and the play/pause state so the
-     * switch is seamless (no stutter, no jump to the start of the list). No-op
-     * if the current song can't be found in the source list (e.g. it was
-     * removed mid-session).
+     * Rebuild the player's timeline tail from the original source list so Up
+     * Next returns to regular order when the user turns shuffle OFF after a
+     * [reshuffle]-baked shuffled timeline.
+     *
+     * Mirrors [reshuffle]'s stutter-free approach: we DON'T call
+     * [Player.setMediaItems] (that re-prepares the current media item and
+     * causes an audible gap). Instead we edit ONLY the tail range after the
+     * current song + manual-queue zone with two batched IPCs —
+     * [Player.removeMediaItems] then [Player.addMediaItems] — so the current
+     * item's playback is never disturbed. The new tail is the source list's
+     * natural order: every source song that should come *after* the current
+     * song (per its position in the source list), excluding the current song
+     * itself and any songs sitting in the manual-queue zone (which stay put
+     * so the user's queued order survives the un-shuffle). No-op if the
+     * current song isn't in the source list or there's nothing after it.
      *
      * Also clears [removedFromUpNextIds] — the source-order rebuild brings
      * every song from the source list back into the timeline, so any id we
@@ -1579,29 +1586,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun restoreSourceOrder(player: Player) {
         val currentId = _currentSong.value?.id ?: return
-        val currentPos = player.currentPosition
-        val wasPlaying = player.isPlaying
         val playlistId = _playingPlaylistId.value
         viewModelScope.launch {
             val sourceSongs = if (playlistId != null) {
                 val pl = repository.getPlaylistSongsOnce(playlistId)
                 if (pl.any { it.id == currentId }) pl else _songs.value
             } else _songs.value
-            val items = sourceSongs.filter { File(it.filePath).exists() }
-                .map { buildMediaItem(it) }
-            val startIndex = items.indexOfFirst { it.mediaId == currentId }
-            if (startIndex < 0 || items.isEmpty()) return@launch
-            // setMediaItems on a prepared player keeps the current item playing
-            // from the same position (we DON'T call prepare — same trick
-            // [reshuffle] uses). playWhenReady is preserved so the user's
-            // pause/play choice survives the swap.
-            player.setMediaItems(items, startIndex, currentPos)
-            player.playWhenReady = wasPlaying
+            val filtered = sourceSongs.filter { File(it.filePath).exists() }
+            val sourceIndex = filtered.indexOfFirst { it.id == currentId }
+            if (sourceIndex < 0) return@launch
+
+            // Songs that should land AFTER the current one in source order,
+            // minus any the user manually queued (those stay in the queue zone
+            // — un-shuffling shouldn't pull them out of the queue).
+            val restSongs = filtered.subList(sourceIndex + 1, filtered.size)
+                .filter { it.id !in manualQueueIds }
+            if (restSongs.isEmpty()) return@launch
+            val rest = restSongs.map { buildMediaItem(it) }
+
+            // Resolve the timeline's "rest" range start: current index + queue
+            // zone. Same layout reshuffle uses: [before current][current]
+            // [queueZone][rest]. We only replace [rest].
+            val count = player.mediaItemCount
+            var restStart = player.currentMediaItemIndex + 1
+            while (restStart < count && player.getMediaItemAt(restStart).mediaId in manualQueueIds) {
+                restStart++
+            }
+            if (restStart >= count) {
+                // No existing rest range to replace — just append the source
+                // tail. (Edge case: reshuffle never created a rest range, e.g.
+                // the user turned shuffle off before reshuffle ran.)
+                player.addMediaItems(restStart, rest)
+            } else {
+                // Batched remove + batched add = 2 IPCs. Current item sits
+                // before restStart so its playback is untouched.
+                player.removeMediaItems(restStart, count)
+                player.addMediaItems(restStart, rest)
+            }
             // The baked-shuffle state is gone — the timeline is now in source
             // order and the player's shuffle flag is already off.
             shuffleBakedIn = false
             removedFromUpNextIds.clear()
-            _timelineSize.value = items.size
             updateQueue()
         }
     }
