@@ -291,6 +291,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _reshuffleGeneration = MutableStateFlow(0)
     val reshuffleGeneration: StateFlow<Int> = _reshuffleGeneration.asStateFlow()
 
+    // Set by reshuffle() right before it issues async remove/add IPCs; consumed
+    // by onTimelineChanged once the controller confirms the new timeline, so the
+    // scroll-to-top generation bump happens AFTER the Up Next list has the new
+    // order (see onTimelineChanged in setupController).
+    @Volatile private var pendingReshuffleScroll = false
+
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
 
@@ -680,6 +686,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 updateQueue()
+                // reshuffle() sets this flag before issuing the async
+                // remove/add IPCs; bump the scroll-to-top generation only once
+                // the controller has confirmed the new timeline, so the Up Next
+                // list shows the new order before it scrolls (avoids a flash of
+                // the old shuffle at the top).
+                if (pendingReshuffleScroll) {
+                    pendingReshuffleScroll = false
+                    _reshuffleGeneration.value = _reshuffleGeneration.value + 1
+                }
             }
             override fun onRepeatModeChanged(repeatMode: Int) {
                 _repeatMode.value = when (repeatMode) {
@@ -1493,7 +1508,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         p.addMediaItems(restStart, rest)
         p.shuffleModeEnabled = true
         _isShuffled.value = true
-        _reshuffleGeneration.value = _reshuffleGeneration.value + 1
+        // Mark a pending scroll-to-top; onTimelineChanged bumps the generation
+        // (and thus triggers the panel's LaunchedEffect) only AFTER the async
+        // remove/add IPCs land, so the list shows the new order before it
+        // scrolls.
+        pendingReshuffleScroll = true
         updateQueue()
     }
 
