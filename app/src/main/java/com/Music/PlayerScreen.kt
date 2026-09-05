@@ -82,6 +82,7 @@ fun PlayerContent(
     val playlists   by viewModel.playlists.collectAsState()
     val upNext      by viewModel.upNext.collectAsState()
     val timelineSize by viewModel.timelineSize.collectAsState()
+    val reshuffleGeneration by viewModel.reshuffleGeneration.collectAsState()
     // The playlist the current playback list came from (null when playing from
     // the Library). Drives the "Remove from playlist" overflow-menu option.
     val playingPlaylistId by viewModel.playingPlaylistId.collectAsState()
@@ -571,6 +572,7 @@ fun PlayerContent(
                         UpNextPanel(
                             items = upNext,
                             totalCount = timelineSize,
+                            reshuffleGeneration = reshuffleGeneration,
                             onPlay = { item ->
                                 viewModel.playTimelineItem(item)
                                 showQueuePanel = false
@@ -827,6 +829,7 @@ private fun UpNextPanel(
     onQueueItem: (MediaItem) -> Unit,
     onRemove: (MediaItem) -> Unit,
     totalCount: Int = items.size,
+    reshuffleGeneration: Int = 0,
     modifier: Modifier = Modifier,
     onReshuffle: (() -> Unit)? = null,
     onClose: (() -> Unit)? = null
@@ -891,6 +894,15 @@ private fun UpNextPanel(
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            // Hoisted to panel scope so the reshuffle LaunchedEffect below can
+            // drive it. scrollToItem(0) snaps the list to the top, showing the
+            // new next song right after a reshuffle.
+            val lazyListState = rememberLazyListState()
+            LaunchedEffect(reshuffleGeneration) {
+                if (reshuffleGeneration > 0 && items.isNotEmpty()) {
+                    lazyListState.scrollToItem(0)
+                }
+            }
             if (items.isEmpty()) {
                 Box(
                     Modifier.fillMaxWidth().padding(vertical = 24.dp),
@@ -922,7 +934,6 @@ private fun UpNextPanel(
                 // place (now relocated to the queue zone by the viewmodel). Pass
                 // `item` (identity), not `index`: the row's positional index can
                 // be stale by the time the confirm callback fires.
-                val lazyListState = rememberLazyListState()
                 LazyColumn(state = lazyListState, modifier = Modifier.fillMaxWidth()) {
                     itemsIndexed(items, key = { _, item -> item.mediaId }) { index, item ->
                         val dismissState = rememberSwipeToDismissBoxState(

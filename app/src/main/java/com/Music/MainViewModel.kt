@@ -285,6 +285,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _timelineSize = MutableStateFlow(0)
     val timelineSize: StateFlow<Int> = _timelineSize.asStateFlow()
 
+    // Bumped each time [reshuffle] reorders the upcoming tail. The Up Next panel
+    // keys a LaunchedEffect off this so it scrolls back to the top after a
+    // reshuffle and the user can immediately see the new next song.
+    private val _reshuffleGeneration = MutableStateFlow(0)
+    val reshuffleGeneration: StateFlow<Int> = _reshuffleGeneration.asStateFlow()
+
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
 
@@ -1487,6 +1493,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         p.addMediaItems(restStart, rest)
         p.shuffleModeEnabled = true
         _isShuffled.value = true
+        _reshuffleGeneration.value = _reshuffleGeneration.value + 1
         updateQueue()
     }
 
