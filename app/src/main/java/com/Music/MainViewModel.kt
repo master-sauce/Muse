@@ -1255,9 +1255,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // which keeps the consume logic in [onMediaItemTransition] from
         // removing playlist songs after they play.
         if (manualQueueIds.isEmpty()) {
-            if (player.shuffleModeEnabled) {
-                shuffleRestoreOnDrain = if (player.shuffleModeEnabled) 1 else 0
-                player.shuffleModeEnabled = false
+            // Use the UI's shuffle state (_isShuffled), not the player flag:
+            // after [reshuffle] the flag is off but _isShuffled is on (the
+            // shuffle is baked into timeline order), and queueing a song should
+            // still remember that intent so the glow restores when the queue
+            // drains — otherwise the button would lose its glow mid-queue even
+            // though the user had shuffle on.
+            if (_isShuffled.value) {
+                shuffleRestoreOnDrain = 1
+                // Suppress the flag-update listener: if shuffle was baked-in
+                // the player flag is already off (no flip happens, no listener
+                // fires), but if shuffle was native (flag on) flipping it off
+                // would otherwise fire onShuffleModeEnabledChanged and persist
+                // shuffle off — we want the restore-on-drain path to own the
+                // re-enable, not a persisted "off" that survives restarts.
+                if (player.shuffleModeEnabled) {
+                    suppressShuffleFlagUpdate = true
+                    player.shuffleModeEnabled = false
+                }
                 _isShuffled.value = false
             }
         }
