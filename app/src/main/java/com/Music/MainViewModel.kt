@@ -303,6 +303,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // baked into timeline order).
     @Volatile private var suppressShuffleFlagUpdate = false
 
+    // True while the upcoming songs are stored in SHUFFLED ORDER directly in the
+    // player's timeline (after [reshuffle]) instead of via ExoPlayer's own
+    // shuffle mode. In that state the player's shuffleModeEnabled flag is OFF
+    // but _isShuffled is ON, and [updateQueue] walks the timeline sequentially
+    // (getNextWindowIndex with shuffleModeEnabled=false). [toggleShuffle] uses
+    // this to know whether turning shuffle OFF needs to rebuild the timeline
+    // back into source order (baked-in → must reload) or just flip the flag
+    // (native shuffle → flag flip is enough).
+    @Volatile private var shuffleBakedIn = false
+
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
 
@@ -731,13 +741,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // so we don't mirror the flag change into _isShuffled here.
                 if (suppressShuffleFlagUpdate) {
                     suppressShuffleFlagUpdate = false
+                    // Still refresh the Up Next panel: the reshuffle path calls
+                    // updateQueue itself, but keep this defensive so any other
+                    // suppressed-flag flip still surfaces an updated list.
+                    updateQueue()
                     return
                 }
                 _isShuffled.value = shuffleModeEnabled
+                // A real player-flag flip (via [toggleShuffle] or
+                // [playSongList]) means we're back on native ExoPlayer shuffle,
+                // so the upcoming order is no longer baked into the timeline.
+                shuffleBakedIn = false
                 // Persist every real player-flag change so shuffle survives
                 // restarts. The manual-queue suppression path never flips the
                 // player flag, so this can't be clobbered by it.
                 repository.saveShuffleEnabled(shuffleModeEnabled)
+                // Refresh the Up Next panel so the list re-orders to match the
+                // new shuffle state (getNextWindowIndex respects
+                // shuffleModeEnabled).
+                updateQueue()
             }
         })
 
@@ -1494,9 +1516,94 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isShuffled.value = false // live state stays off until the queue drains
             return
         }
-        val newState = !p.shuffleModeEnabled
-        p.shuffleModeEnabled = newState
-        _isShuffled.value = newState
+        // Base the toggle off the UI's shuffle state (_isShuffled), NOT the
+        // player's shuffleModeEnabled flag. After [reshuffle] the two diverge:
+        // reshuffle turns the player's shuffle MODE off (so the Up Next panel
+        // reads our baked-in order directly) but keeps _isShuffled=true (the
+        // upcoming order IS shuffled, just baked into timeline order). Toggling
+        // off the player flag would compute newState=true and silently turn
+        // shuffle back on instead of off — the "press twice to turn off" bug.
+        // _isShuffled is what the button glows to, so flip that and mirror it
+        // onto the player flag in one step.
+        val newState = !_isShuffled.value
+        if (!newState) {
+            // Turning shuffle OFF.
+            if (shuffleBakedIn) {
+                // The upcoming order is currently baked into the timeline by a
+                // prior [reshuffle]. Flipping the player flag wouldn't reorder
+                // anything (the timeline is still in shuffled order), so the Up
+                // Next panel would keep showing the baked-in random order even
+                // though the button stopped glowing. Rebuild the timeline from
+                // the original source list (preserving the current song +
+                // position + playing state) so Up Next returns to regular order.
+                restoreSourceOrder(p)
+            } else {
+                // Native ExoPlayer shuffle — flipping the flag off is enough;
+                // onShuffleModeEnabledChanged refreshes the Up Next panel.
+                p.shuffleModeEnabled = false
+            }
+            _isShuffled.value = false
+        } else {
+            // Turning shuffle ON.
+            if (shuffleBakedIn) {
+                // Already baked-in shuffled — just re-glow the indicator (the
+                // timeline order is already random). Don't touch the player
+                // flag (turning native shuffle on top of a baked order would
+                // make Up Next walk ExoPlayer's stale ShuffleOrder instead of
+                // the baked order).
+                _isShuffled.value = true
+                updateQueue()
+            } else {
+                // Native shuffle on. onShuffleModeEnabledChanged refreshes Up
+                // Next and clears shuffleBakedIn.
+                p.shuffleModeEnabled = true
+                _isShuffled.value = true
+            }
+        }
+    }
+
+    /**
+     * Rebuild the player's timeline from the original source list (the
+     * playlist the current playback came from, or the full library) in its
+     * natural order — undoing a [reshuffle]-baked shuffled timeline so Up Next
+     * returns to regular order when the user turns shuffle OFF. Preserves the
+     * currently-playing song, its position, and the play/pause state so the
+     * switch is seamless (no stutter, no jump to the start of the list). No-op
+     * if the current song can't be found in the source list (e.g. it was
+     * removed mid-session).
+     *
+     * Also clears [removedFromUpNextIds] — the source-order rebuild brings
+     * every song from the source list back into the timeline, so any id we
+     * remembered as swipe-removed is naturally restored; keeping the set would
+     * risk double-adding on a later reshuffle.
+     */
+    private fun restoreSourceOrder(player: Player) {
+        val currentId = _currentSong.value?.id ?: return
+        val currentPos = player.currentPosition
+        val wasPlaying = player.isPlaying
+        val playlistId = _playingPlaylistId.value
+        viewModelScope.launch {
+            val sourceSongs = if (playlistId != null) {
+                val pl = repository.getPlaylistSongsOnce(playlistId)
+                if (pl.any { it.id == currentId }) pl else _songs.value
+            } else _songs.value
+            val items = sourceSongs.filter { File(it.filePath).exists() }
+                .map { buildMediaItem(it) }
+            val startIndex = items.indexOfFirst { it.mediaId == currentId }
+            if (startIndex < 0 || items.isEmpty()) return@launch
+            // setMediaItems on a prepared player keeps the current item playing
+            // from the same position (we DON'T call prepare — same trick
+            // [reshuffle] uses). playWhenReady is preserved so the user's
+            // pause/play choice survives the swap.
+            player.setMediaItems(items, startIndex, currentPos)
+            player.playWhenReady = wasPlaying
+            // The baked-shuffle state is gone — the timeline is now in source
+            // order and the player's shuffle flag is already off.
+            shuffleBakedIn = false
+            removedFromUpNextIds.clear()
+            _timelineSize.value = items.size
+            updateQueue()
+        }
     }
 
     /**
@@ -1579,6 +1686,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         suppressShuffleFlagUpdate = true
         p.shuffleModeEnabled = false
         _isShuffled.value = true
+        // Mark the upcoming order as baked into the timeline so [toggleShuffle]
+        // knows turning shuffle OFF must rebuild the source order (a plain flag
+        // flip wouldn't reorder anything).
+        shuffleBakedIn = true
         // Mark a pending scroll-to-top; onTimelineChanged bumps the generation
         // (and thus triggers the panel's LaunchedEffect) only AFTER the async
         // remove/add IPCs land, so the list shows the new order before it
