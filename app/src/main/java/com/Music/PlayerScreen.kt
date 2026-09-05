@@ -81,6 +81,7 @@ fun PlayerContent(
     val exoPlayer   by viewModel.exoPlayer.collectAsState()
     val playlists   by viewModel.playlists.collectAsState()
     val upNext      by viewModel.upNext.collectAsState()
+    val timelineSize by viewModel.timelineSize.collectAsState()
     // The playlist the current playback list came from (null when playing from
     // the Library). Drives the "Remove from playlist" overflow-menu option.
     val playingPlaylistId by viewModel.playingPlaylistId.collectAsState()
@@ -569,12 +570,14 @@ fun PlayerContent(
                     ) {
                         UpNextPanel(
                             items = upNext,
+                            totalCount = timelineSize,
                             onPlay = { item ->
                                 viewModel.playTimelineItem(item)
                                 showQueuePanel = false
                             },
                             onQueueItem = { item -> viewModel.queueTimelineItem(item) },
                             onRemove = { item -> viewModel.removeUpNextItem(item) },
+                            onReshuffle = { viewModel.reshuffle() },
                             onClose = { showQueuePanel = false },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -823,7 +826,9 @@ private fun UpNextPanel(
     onPlay: (MediaItem) -> Unit,
     onQueueItem: (MediaItem) -> Unit,
     onRemove: (MediaItem) -> Unit,
+    totalCount: Int = items.size,
     modifier: Modifier = Modifier,
+    onReshuffle: (() -> Unit)? = null,
     onClose: (() -> Unit)? = null
 ) {
     Surface(
@@ -852,11 +857,25 @@ private fun UpNextPanel(
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "${items.size} song${if (items.size == 1) "" else "s"}",
+                    "$totalCount song${if (totalCount == 1) "" else "s"}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.weight(1f))
+                if (onReshuffle != null) {
+                    Icon(
+                        Icons.Default.Shuffle, "Reshuffle",
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) { onReshuffle() },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.width(16.dp))
+                }
                 if (onClose != null) {
                     Icon(
                         Icons.Default.Close, "Close",

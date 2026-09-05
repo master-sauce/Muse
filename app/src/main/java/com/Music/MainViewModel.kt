@@ -278,6 +278,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _upNext = MutableStateFlow<List<MediaItem>>(emptyList())
     val upNext: StateFlow<List<MediaItem>> = _upNext.asStateFlow()
 
+    // Total number of media items currently in the player's timeline — i.e. the
+    // size of the playlist / library the user is playing from (plus any manually
+    // queued songs). Surfaced so the big player's "Up Next" panel can show
+    // "x / N songs in this list". Refreshed by [updateQueue].
+    private val _timelineSize = MutableStateFlow(0)
+    val timelineSize: StateFlow<Int> = _timelineSize.asStateFlow()
+
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
 
@@ -725,6 +732,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else emptyList()
         _upNext.value = upList
+        _timelineSize.value = player.mediaItemCount
     }
 
     private fun startProgressUpdate() {
@@ -1425,6 +1433,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val newState = !p.shuffleModeEnabled
         p.shuffleModeEnabled = newState
         _isShuffled.value = newState
+    }
+
+    /**
+     * Re-roll the upcoming playback order so the songs shown in the "Up Next"
+     * panel land in a new random sequence — without disturbing the currently-
+     * playing song (no reload / stutter).
+     *
+     * We rebuild the timeline in one [Player.setMediaItems] call so it's a
+     * single batched update (many [Player.moveMediaItem] calls flood the
+     * MediaController with commands and freeze the UI on large libraries). The
+     * rebuild keeps:
+     *   • the currently-playing item at index 0 with its current position, so
+     *     playback resumes from the same spot (we DON'T call [Player.prepare],
+     *     which is what caused the earlier stutter — the player is already
+     *     prepared, and setMediaItems on a prepared player keeps the current
+     *     item playing),
+     *   • the manual-queue zone (the contiguous run of [manualQueueIds] members
+     *     that follow the current song) in its exact added order — queued songs
+     *     always play in the order the user queued them, regardless of shuffle,
+     *   • the remaining playlist / library songs, re-shuffled.
+     *
+     * Shuffle is forced ON (the user is explicitly asking for a new shuffle, so
+     * we bypass the manual-queue suppression in [toggleShuffle]) and
+     * [updateQueue] refreshes the "Up Next" flow so the panel reflects the new
+     * order immediately.
+     */
+    fun reshuffle() {
+        val p = controller ?: return
+        val count = p.mediaItemCount
+        if (count == 0) return
+        val currentIndex = p.currentMediaItemIndex
+
+        // Layout in playback order:
+        //   [before current] [current] [queueZone] [rest]
+        // Only "rest" (after the manual-queue zone) gets re-shuffled. We edit
+        // ONLY that tail range with two batched commands so the current song's
+        // media is never replaced/re-prepared (no stutter) and we don't flood
+        // the controller with N single-item IPCs (no UI freeze).
+        var restStart = currentIndex + 1
+        while (restStart < count && p.getMediaItemAt(restStart).mediaId in manualQueueIds) {
+            restStart++
+        }
+        if (restStart >= count) return // nothing after queue zone to shuffle
+
+        val rest = ArrayList<MediaItem>(count - restStart)
+        for (i in restStart until count) rest.add(p.getMediaItemAt(i))
+        rest.shuffle()
+
+        // Batched remove + batched add = 2 IPCs total. Current item sits before
+        // restStart so its playback is untouched.
+        p.removeMediaItems(restStart, count)
+        p.addMediaItems(restStart, rest)
+        p.shuffleModeEnabled = true
+        _isShuffled.value = true
+        updateQueue()
     }
 
     fun toggleRepeat() {
