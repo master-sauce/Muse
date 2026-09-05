@@ -139,19 +139,46 @@ fun MusicApp() {
             composable(
                 route     = Screen.YouTubeSearch.route,
                 enterTransition = {
-                    slideInVertically(
+                    // Slide in from the left edge (full-width offset → 0). A slow,
+                    // low-stiffness spring gives a smooth, eased feel rather than a
+                    // snappy linear slide.
+                    slideInHorizontally(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness    = Spring.StiffnessLow
+                        )
+                    ) { it } + fadeIn(tween(450, easing = FastOutSlowInEasing))
+                },
+                exitTransition     = {
+                    // Forward navigation away from the search screen: slide out to
+                    // the right (mirrors the pop exit) so the back button and the
+                    // system back gesture share the same exit motion.
+                    slideOutHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness    = Spring.StiffnessMediumLow
+                            stiffness    = Spring.StiffnessLow
                         )
-                    ) { it } + fadeIn(tween(0))
+                    ) { it } + fadeOut(tween(450, easing = FastOutSlowInEasing))
                 },
-                exitTransition     = { fadeOut(tween(120)) },
-                popEnterTransition = { fadeIn(tween(0)) },
+                popEnterTransition = {
+                    // Returning to the search screen (e.g. via system back from a
+                    // deeper destination): slide it back in from the right.
+                    slideInHorizontally(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness    = Spring.StiffnessLow
+                        )
+                    ) { -it } + fadeIn(tween(450, easing = FastOutSlowInEasing))
+                },
                 popExitTransition  = {
-                    slideOutVertically(
-                        animationSpec = tween(220, easing = FastOutLinearInEasing)
-                    ) { it } + fadeOut(tween(160))
+                    // Back button / system back: slide out to the right. Slower
+                    // spring so the exit reads clearly.
+                    slideOutHorizontally(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness    = Spring.StiffnessLow
+                        )
+                    ) { it } + fadeOut(tween(450, easing = FastOutSlowInEasing))
                 }
             ) {
                 YouTubeSearchScreen(
