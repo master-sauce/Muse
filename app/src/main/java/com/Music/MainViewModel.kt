@@ -297,6 +297,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // order (see onTimelineChanged in setupController).
     @Volatile private var pendingReshuffleScroll = false
 
+    // Set by reshuffle() right before it flips the player's shuffle mode off;
+    // onShuffleModeEnabledChanged consumes it so the flag change doesn't reset
+    // _isShuffled (the UI should still show "shuffled" — the shuffle is now
+    // baked into timeline order).
+    @Volatile private var suppressShuffleFlagUpdate = false
+
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
 
@@ -704,6 +710,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                // reshuffle() turns the player's shuffle MODE off (so the Up
+                // Next panel reads our re-rolled timeline directly) but keeps
+                // the UI's "shuffled" indicator ON — it sets this guard first
+                // so we don't mirror the flag change into _isShuffled here.
+                if (suppressShuffleFlagUpdate) {
+                    suppressShuffleFlagUpdate = false
+                    return
+                }
                 _isShuffled.value = shuffleModeEnabled
                 // Persist every real player-flag change so shuffle survives
                 // restarts. The manual-queue suppression path never flips the
@@ -1506,7 +1520,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // restStart so its playback is untouched.
         p.removeMediaItems(restStart, count)
         p.addMediaItems(restStart, rest)
-        p.shuffleModeEnabled = true
+        // Turn the player's shuffle MODE off so the Up Next panel (which walks
+        // the timeline via getNextWindowIndex with shuffleModeEnabled) reads our
+        // freshly-shuffled tail directly. With shuffle mode on, the panel would
+        // follow ExoPlayer's internal ShuffleOrder, which the remove/add IPCs
+        // don't regenerate — that left the same top songs stuck after repeated
+        // reshuffles. The "shuffle" is now baked into timeline order; playback
+        // proceeds sequentially through the re-rolled list.
+        // The guard stops onShuffleModeEnabledChanged from mirroring this flag
+        // flip into _isShuffled — we set the indicator ourselves so the UI keeps
+        // showing "shuffled" (the upcoming order IS shuffled, just baked in).
+        suppressShuffleFlagUpdate = true
+        p.shuffleModeEnabled = false
         _isShuffled.value = true
         // Mark a pending scroll-to-top; onTimelineChanged bumps the generation
         // (and thus triggers the panel's LaunchedEffect) only AFTER the async
