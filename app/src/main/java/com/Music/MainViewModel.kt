@@ -1701,10 +1701,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         val mediaId = item.mediaId
 
-        // Resolve the media id to its real timeline index and remove it.
+        // Resolve the media id to its real timeline index. Instead of deleting
+        // the item outright, MOVE it to the very end of the timeline so it
+        // drops out of the visible Up Next window (the panel only lists items
+        // after the current index, and ExoPlayer walks the timeline in order)
+        // but stays in the list. That way the song can reappear in a later
+        // reshuffle (reshuffle re-rolls the "rest" bucket, which now includes
+        // this pushed-back song) instead of being gone forever.
         for (i in 0 until player.mediaItemCount) {
             if (player.getMediaItemAt(i).mediaId == mediaId) {
-                player.removeMediaItem(i)
+                val lastIndex = player.mediaItemCount - 1
+                if (i < lastIndex) player.moveMediaItem(i, lastIndex)
                 break
             }
         }
