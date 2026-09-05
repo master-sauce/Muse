@@ -1189,8 +1189,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val startIndex = items.indexOfFirst { it.mediaId == song.id }.coerceAtLeast(0)
         player.setMediaItems(items, startIndex, 0L)
         _timelineSize.value = items.size
+        // Honor the user's shuffle intent on the fresh timeline. If the UI shows
+        // shuffle on (from a prior session / a reshuffle that baked the order
+        // into the old timeline), bake a new shuffle into THIS timeline too —
+        // otherwise picking a song after a reshuffle would show the button
+        // glowing while the new list plays in source order. Native player
+        // shuffle mode is left off (reshuffle-style) so Up Next reads the
+        // baked order directly; set shuffleBakedIn so a later toggle-off
+        // restores source order.
+        //
+        // Suppress the flag-update listener while we flip shuffleModeEnabled
+        // off: setMediaItems above can leave the flag on (if it was on), and
+        // turning it off here would otherwise fire onShuffleModeEnabledChanged
+        // synchronously and clobber _isShuffled back to false before we set it.
+        if (_isShuffled.value) {
+            suppressShuffleFlagUpdate = true
+            player.shuffleModeEnabled = false
+            bakeShuffleIntoTimeline(player, startIndex)
+            _isShuffled.value = true
+            shuffleBakedIn = true
+        } else {
+            player.shuffleModeEnabled = false
+            shuffleBakedIn = false
+        }
         player.prepare(); player.play()
         updateQueue()
+    }
+
+    /**
+     * Reorder the timeline tail (everything strictly after [startIndex]) into a
+     * fresh random sequence, in place — the shuffle-baking half of [reshuffle]
+     * without its flag/generation bookkeeping. Used by [playSong] /
+     * [playSongList] to apply the user's shuffle intent to a freshly-built
+     * timeline so the glowing button matches actual playback order. Uses the
+     * same batched remove/add trick as [reshuffle] so the current item's media
+     * is never re-prepared (no stutter). No-op if there's nothing after
+     * [startIndex].
+     */
+    private fun bakeShuffleIntoTimeline(player: Player, startIndex: Int) {
+        val count = player.mediaItemCount
+        val restStart = startIndex + 1
+        if (restStart >= count) return
+        val rest = ArrayList<MediaItem>(count - restStart)
+        for (i in restStart until count) rest.add(player.getMediaItemAt(i))
+        rest.shuffle()
+        player.removeMediaItems(restStart, count)
+        player.addMediaItems(restStart, rest)
     }
 
     private fun enterManualQueueMode() {
@@ -1424,14 +1468,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         val items  = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
-        if (shuffle && !player.shuffleModeEnabled) {
-            // onShuffleModeEnabledChanged persists this to prefs + updates
-            // _isShuffled, so the player's shuffle button reflects it too.
-            player.shuffleModeEnabled = true
-            _isShuffled.value = true
-        }
-        player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), 0L)
+        // Resolve the effective shuffle state: the explicit [shuffle] arg
+        // (from Library / PlaylistDetail "Shuffle" buttons) OR a carried-over
+        // _isShuffled intent (e.g. user had shuffle on, picked a new song from
+        // the list without pressing a Shuffle button). Either way the fresh
+        // timeline should actually play shuffled — bake the order in so the
+        // glowing button matches playback, instead of leaving the new list in
+        // source order while the UI claims shuffle is on.
+        // Resolve the effective shuffle state: the explicit [shuffle] arg
+        // (from Library / PlaylistDetail "Shuffle" buttons) OR a carried-over
+        // _isShuffled intent (e.g. user had shuffle on, picked a new song from
+        // the list without pressing a Shuffle button). Either way the fresh
+        // timeline should actually play shuffled — bake the order in so the
+        // glowing button matches playback, instead of leaving the new list in
+        // source order while the UI claims shuffle is on.
+        val wantShuffle = shuffle || _isShuffled.value
+        val start = startIndex.coerceIn(0, items.lastIndex)
+        player.setMediaItems(items, start, 0L)
         _timelineSize.value = items.size
+        // Bake the shuffle into timeline order (same approach as [playSong] and
+        // [reshuffle]): turn the player's native shuffle mode off so Up Next
+        // reads the baked order directly, then re-roll the tail. Suppress the
+        // flag-update listener around the flip so onShuffleModeEnabledChanged
+        // doesn't clobber _isShuffled back to false before we re-set it; we set
+        // _isShuffled + shuffleBakedIn ourselves right after.
+        if (wantShuffle) {
+            suppressShuffleFlagUpdate = true
+            player.shuffleModeEnabled = false
+            bakeShuffleIntoTimeline(player, start)
+            _isShuffled.value = true
+            shuffleBakedIn = true
+        } else {
+            player.shuffleModeEnabled = false
+            _isShuffled.value = false
+            shuffleBakedIn = false
+        }
         player.prepare(); player.play()
         updateQueue()
     }
