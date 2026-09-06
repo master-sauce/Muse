@@ -1366,16 +1366,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Used by the big player's "Up Next" panel — unlike [playFromQueue] this
      * works for *any* timeline item, not just the manual queue, since the
      * upcoming list reflects the player's actual forward order.
+     *
+     * If a manual queue is active and the tapped item isn't itself a queued
+     * song, relocate the queue zone to immediately after the target so the
+     * queued songs still play next. Otherwise seeking past them strands them
+     * behind the new current: they remain in [manualQueueIds] (so the Queue
+     * tab still shows them) but the forward play order never reaches them.
      */
     fun playTimelineItem(item: MediaItem) {
         val player = controller ?: return
-        for (i in 0 until player.mediaItemCount) {
-            if (player.getMediaItemAt(i).mediaId == item.mediaId) {
-                player.seekTo(i, 0L)
-                player.play()
-                break
+        val mediaId = item.mediaId
+        if (manualQueueIds.isNotEmpty() && mediaId !in manualQueueIds) {
+            // Capture queued items in their current timeline order.
+            val queued = (0 until player.mediaItemCount)
+                .map(player::getMediaItemAt)
+                .filter { it.mediaId in manualQueueIds }
+            // Pull them out (high index first to keep earlier indices stable).
+            for (i in player.mediaItemCount - 1 downTo 0) {
+                if (player.getMediaItemAt(i).mediaId in manualQueueIds) {
+                    player.removeMediaItem(i)
+                }
+            }
+            // The target's index may have shifted down because queued items
+            // sitting before it were removed — re-resolve it.
+            val newTarget = (0 until player.mediaItemCount).firstOrNull {
+                player.getMediaItemAt(it).mediaId == mediaId
+            } ?: return
+            // Re-insert the queue zone right after the target, preserving order.
+            queued.forEachIndexed { offset, qi ->
+                player.addMediaItem(newTarget + 1 + offset, qi)
+            }
+            player.seekTo(newTarget, 0L)
+        } else {
+            for (i in 0 until player.mediaItemCount) {
+                if (player.getMediaItemAt(i).mediaId == mediaId) {
+                    player.seekTo(i, 0L)
+                    break
+                }
             }
         }
+        player.play()
     }
 
     /**
