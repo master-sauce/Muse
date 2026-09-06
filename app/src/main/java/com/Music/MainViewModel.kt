@@ -1993,6 +1993,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         manualQueueIds.remove(mediaId)
+        // If that drained the manual queue, restore the shuffle state saved in
+        // [enterManualQueueMode] — same as [removeFromQueue] /
+        // [onMediaItemTransition]. Without this, swiping away the last queued
+        // song via Up Next leaves the glow off for good. Two restore shapes:
+        //   • Baked entry (shuffleBakedIn): the tail was already in shuffled
+        //     order (the queue only inserted songs, never reordered the tail),
+        //     so just re-light _isShuffled — no rebuild, no flag flip.
+        //   • Native entry: shuffle was on via the player flag before the queue
+        //     (flipped off on entry). Flipping it back on would regenerate
+        //     ExoPlayer's ShuffleOrder and re-roll the whole tail — the same
+        //     root cause as the swipe-to-remove reshuffle bug. Bake the tail
+        //     into shuffled order in place instead; flag stays off, no
+        //     regeneration, no reshuffle.
+        if (manualQueueIds.isEmpty() && shuffleRestoreOnDrain != -1) {
+            val restore = shuffleRestoreOnDrain == 1
+            shuffleRestoreOnDrain = -1
+            when {
+                restore && shuffleBakedIn -> _isShuffled.value = true
+                restore -> {
+                    bakeShuffleIntoTimeline(player, player.currentMediaItemIndex)
+                    shuffleBakedIn = true
+                    _isShuffled.value = true
+                }
+                else -> {
+                    player.shuffleModeEnabled = false
+                    _isShuffled.value = false
+                }
+            }
+        }
         updateQueue()
     }
 
