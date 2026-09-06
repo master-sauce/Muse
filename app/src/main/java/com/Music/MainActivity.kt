@@ -111,37 +111,37 @@ fun MusicApp() {
                 route = Screen.Lyrics.route,
                 enterTransition = {
                     // Slide in from the left edge (full-width offset → 0).
-                    // Smooth low-stiffness spring for an eased feel.
+                    // Snappier medium-low spring for a quicker, responsive open.
                     slideInHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { it } + fadeIn(tween(450, easing = FastOutSlowInEasing))
+                    ) { it } + fadeIn(tween(220, easing = FastOutSlowInEasing))
                 },
                 exitTransition     = {
                     slideOutHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { it } + fadeOut(tween(450, easing = FastOutSlowInEasing))
+                    ) { it } + fadeOut(tween(220, easing = FastOutSlowInEasing))
                 },
                 popEnterTransition = {
                     slideInHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { it } + fadeIn(tween(450, easing = FastOutSlowInEasing))
+                    ) { it } + fadeIn(tween(220, easing = FastOutSlowInEasing))
                 },
                 popExitTransition  = {
                     slideOutHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { it } + fadeOut(tween(450, easing = FastOutSlowInEasing))
+                    ) { it } + fadeOut(tween(220, easing = FastOutSlowInEasing))
                 }
             ) {
                 LyricsScreen(
@@ -160,14 +160,14 @@ fun MusicApp() {
                 enterTransition = {
                     // Slide in from the right edge (the YouTube search button
                     // lives on the right side of the library bar, so the screen
-                    // emerges from there). Smooth low-stiffness spring for an
-                    // eased feel rather than a snappy linear slide.
+                    // emerges from there). Snappier medium-low spring for a
+                    // quicker, responsive open.
                     slideInHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { -it } + fadeIn(tween(450, easing = FastOutSlowInEasing))
+                    ) { -it } + fadeIn(tween(220, easing = FastOutSlowInEasing))
                 },
                 exitTransition     = {
                     // Forward navigation away from the search screen: slide out
@@ -176,9 +176,9 @@ fun MusicApp() {
                     slideOutHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { -it } + fadeOut(tween(450, easing = FastOutSlowInEasing))
+                    ) { -it } + fadeOut(tween(220, easing = FastOutSlowInEasing))
                 },
                 popEnterTransition = {
                     // Returning to the search screen (e.g. via system back from a
@@ -186,19 +186,19 @@ fun MusicApp() {
                     slideInHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioLowBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { -it } + fadeIn(tween(450, easing = FastOutSlowInEasing))
+                    ) { -it } + fadeIn(tween(220, easing = FastOutSlowInEasing))
                 },
                 popExitTransition  = {
-                    // Back button / system back: slide out to the right. Slower
-                    // spring so the exit reads clearly.
+                    // Back button / system back: slide out to the right. Quick
+                    // spring so the exit reads clearly without dragging.
                     slideOutHorizontally(
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness    = Spring.StiffnessLow
+                            stiffness    = Spring.StiffnessMediumLow
                         )
-                    ) { -it } + fadeOut(tween(450, easing = FastOutSlowInEasing))
+                    ) { -it } + fadeOut(tween(220, easing = FastOutSlowInEasing))
                 }
             ) {
                 YouTubeSearchScreen(
