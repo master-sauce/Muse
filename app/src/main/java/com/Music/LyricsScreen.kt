@@ -110,7 +110,9 @@ private fun PlainLyrics(text: String) {
                 style      = MaterialTheme.typography.bodyLarge,
                 color      = MaterialTheme.colorScheme.onBackground,
                 fontSize   = 18.sp,
-                lineHeight = 30.sp
+                lineHeight = 30.sp,
+                textAlign  = TextAlign.Center,
+                modifier   = Modifier.fillMaxWidth()
             )
         }
     }
@@ -146,11 +148,13 @@ private fun SyncedLyrics(lines: List<LyricLine>, positionMs: Long) {
                     else      -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.95f)
                 },
                 lineHeight = 34.sp,
+                textAlign  = TextAlign.Center,
                 modifier   = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 6.dp)
                     .then(
                         if (isCurrent) Modifier
+                            .wrapContentWidth(Alignment.CenterHorizontally)
                             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
                                 RoundedCornerShape(10.dp))
                             .padding(horizontal = 10.dp, vertical = 3.dp)
