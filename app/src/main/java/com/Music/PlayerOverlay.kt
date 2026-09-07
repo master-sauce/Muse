@@ -1,8 +1,8 @@
 package com.Music
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -75,10 +76,11 @@ fun PlayerOverlay(
     // 0f = collapsed (mini), 1f = expanded (full player).
     val expansion = remember { Animatable(if (expanded) 1f else 0f) }
 
-    // Live drag offset, reset whenever the target state changes so a back
-    // press or programmatic collapse always starts from a clean slate (this
-    // fixes the "half-open" bug when back is pressed mid-drag).
-    val dragOffsetPx = remember { Animatable(0f) }
+    // Keep pointer movement in ordinary snapshot state. Updating an Animatable
+    // required launching one coroutine for every pointer event, which could
+    // process stale deltas a frame late and made the sheet feel detached from
+    // the finger on fast drags.
+    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
 
     // True while the user's finger is actively dragging. While this is set we
     // keep BOTH the mini bar and the full player composed so the gesture
@@ -102,29 +104,28 @@ fun PlayerOverlay(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val maxHeightPx = with(density) { maxHeight.toPx() }
 
-        // Sensitivity: a drag of `dragRangePx` covers the full 0→1 morph.
-        // 0.35 = a natural, full-length swipe; not too twitchy, not too far.
-        val dragRangePx = maxHeightPx * 0.35f
+        // Moderate travel keeps direct manipulation smooth without requiring a
+        // near full-screen pull. Combined with the commit threshold below, an
+        // intentional drag of roughly 11% of screen height opens or closes.
+        val dragRangePx = maxHeightPx * 0.5f
+        val emphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
-        // Animate toward the target state whenever [expanded] flips. We start
-        // from the *current* visual progress (including any live drag) so there
-        // is no jump when a drag triggers onExpand/onCollapse or when back is
-        // pressed mid-drag. Snappy and non-bouncy for a responsive feel.
+        // Animate from current visual position, including unfinished drag
+        // distance. Duration scales with remaining distance, preventing a
+        // short release settle from taking as long as a full tap transition.
         LaunchedEffect(expanded) {
-            // Don't fight the user: if a drag is in progress, the drag end
-            // callback is what flips `expanded` and drives the snap animation.
             if (isDragging) return@LaunchedEffect
-            val currentProgress = (expansion.value - dragOffsetPx.value / dragRangePx)
-                .coerceIn(0f, 1f)
-            dragOffsetPx.snapTo(0f)
+            val target = if (expanded) 1f else 0f
+            val currentProgress =
+                (expansion.value - dragOffsetPx / dragRangePx).coerceIn(0f, 1f)
+            dragOffsetPx = 0f
             expansion.snapTo(currentProgress)
+            val distance = abs(target - currentProgress)
             expansion.animateTo(
-                targetValue   = if (expanded) 1f else 0f,
-                // Snappier than StiffnessMedium (400f) but smoother than
-                // StiffnessHigh (10000f) — a quick, responsive morph.
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness    = Spring.StiffnessMedium
+                targetValue = target,
+                animationSpec = tween(
+                    durationMillis = (170 + 190 * distance).roundToInt(),
+                    easing = emphasizedEasing
                 )
             )
         }
@@ -134,12 +135,45 @@ fun PlayerOverlay(
         // fully expanded (1). Dragging up (negative offset) increases
         // progress (expands); dragging down (positive offset) decreases
         // progress (collapses).
-        val progress = (expansion.value - dragOffsetPx.value / dragRangePx)
+        val progress = (expansion.value - dragOffsetPx / dragRangePx)
             .coerceIn(0f, 1f)
 
-        // Hide the inner images only while actively morphing (0 < progress < 1).
-        // At the endpoints the real image is shown so taps/gestures hit it.
+        // Hide source artwork only once both measured endpoints are available.
+        // This avoids a blank frame at the beginning of tap-to-expand while
+        // full-player artwork is being composed and measured.
         val morphing = progress > 0.001f && progress < 0.999f
+        val heroReady = morphing &&
+            miniThumbRect != null &&
+            bigArtRect != null &&
+            song.thumbnailUrl != null
+
+        fun startOrContinueDrag(dy: Float) {
+            if (!isDragging) {
+                isDragging = true
+                // Stop programmatic settling once per gesture, not once per
+                // pointer delta. Snapshot state below tracks every delta now.
+                scope.launch { expansion.stop() }
+            }
+            dragOffsetPx += dy
+        }
+
+        fun settleBack(target: Float) {
+            val currentProgress =
+                (expansion.value - dragOffsetPx / dragRangePx).coerceIn(0f, 1f)
+            dragOffsetPx = 0f
+            scope.launch {
+                expansion.stop()
+                expansion.snapTo(currentProgress)
+                val distance = abs(target - currentProgress)
+                expansion.animateTo(
+                    targetValue = target,
+                    animationSpec = tween(
+                        durationMillis = (150 + 170 * distance).roundToInt(),
+                        easing = emphasizedEasing
+                    )
+                )
+            }
+        }
 
         // ── Full player ───────────────────────────────────────────────────────
         // Slides up from below the viewport as progress → 1. Kept composed
@@ -150,9 +184,11 @@ fun PlayerOverlay(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = (progress * 2f).coerceIn(0f, 1f)
-                        // At progress = 0 the full player sits one screen below;
-                        // at progress = 1 it fills the screen at 0.
+                        // Establish the sheet quickly without the abrupt halfway
+                        // crossfade used before. Translation still follows drag
+                        // progress directly.
+                        val fadeProgress = (progress / 0.28f).coerceIn(0f, 1f)
+                        alpha = fadeProgress * fadeProgress * (3f - 2f * fadeProgress)
                         translationY = (1f - progress) * maxHeightPx
                     }
             ) {
@@ -161,46 +197,33 @@ fun PlayerOverlay(
                     onNavigateBack     = onCollapse,
                     onNavigateToLyrics = onNavigateToLyrics,
                     showBackChevron    = progress > 0.6f,
-                    onDragDown         = { dy ->
-                        isDragging = true
-                        scope.launch { dragOffsetPx.snapTo(dragOffsetPx.value + dy) }
-                    },
+                    onDragDown = ::startOrContinueDrag,
                     onDragEnd = {
-                        val total = expansion.value - dragOffsetPx.value / dragRangePx
+                        val total = expansion.value - dragOffsetPx / dragRangePx
                         isDragging = false
-                        scope.launch {
-                            // Collapse once the player has been dragged down past
-                            // the 70% mark (i.e. only 30% of the morph remains).
-                            if (total < 0.7f) onCollapse() else dragOffsetPx.animateTo(0f)
-                        }
+                        // A short intentional pull commits the collapse.
+                        if (total < 0.78f) onCollapse() else settleBack(1f)
                     },
                     onDragCancel = {
                         isDragging = false
-                        scope.launch { dragOffsetPx.animateTo(0f) }
+                        settleBack(1f)
                     },
                     // Let the user drag down from the album art too (YT Music).
-                    onArtworkDragDown = { dy ->
-                        isDragging = true
-                        scope.launch { dragOffsetPx.snapTo(dragOffsetPx.value + dy) }
-                    },
+                    onArtworkDragDown = ::startOrContinueDrag,
                     onArtworkDragEnd = {
-                        val total = expansion.value - dragOffsetPx.value / dragRangePx
+                        val total = expansion.value - dragOffsetPx / dragRangePx
                         isDragging = false
-                        scope.launch {
-                            // Collapse once the player has been dragged down past
-                            // the 70% mark (i.e. only 30% of the morph remains).
-                            if (total < 0.7f) onCollapse() else dragOffsetPx.animateTo(0f)
-                        }
+                        if (total < 0.78f) onCollapse() else settleBack(1f)
                     },
                     onArtworkDragCancel = {
                         isDragging = false
-                        scope.launch { dragOffsetPx.animateTo(0f) }
+                        settleBack(1f)
                     },
                     // Hero morph: report the album art's on-screen bounds and
                     // hide the inner image while morphing so the hero draws on
                     // top.
                     onArtworkPositioned = { rect -> bigArtRect = rect },
-                    hideArtwork = morphing
+                    hideArtwork = heroReady
                 )
             }
         }
@@ -213,9 +236,12 @@ fun PlayerOverlay(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = (1f - progress * 2f).coerceIn(0f, 1f)
-                        // Slide up off the top as the full player replaces it.
-                        translationY = -progress * maxHeightPx
+                        val fadeProgress = (progress / 0.42f).coerceIn(0f, 1f)
+                        alpha = 1f - fadeProgress * fadeProgress * (3f - 2f * fadeProgress)
+                        // Keep mini player spatially anchored. A subtle lift reads
+                        // as expansion; full-screen upward travel looked like a
+                        // second sheet racing against full player.
+                        translationY = -progress * with(density) { 28.dp.toPx() }
                     }
             ) {
                 Box(
@@ -231,26 +257,21 @@ fun PlayerOverlay(
                         onPrevious = { viewModel.playPrevious() },
                         onNext     = { viewModel.playNext() },
                         onTap      = onExpand,
-                        onDragUp   = { dy ->
-                            isDragging = true
-                            scope.launch { dragOffsetPx.snapTo(dragOffsetPx.value + dy) }
-                        },
+                        onDragUp = ::startOrContinueDrag,
                         onDragEnd = {
-                            val total = expansion.value - dragOffsetPx.value / dragRangePx
+                            val total = expansion.value - dragOffsetPx / dragRangePx
                             isDragging = false
-                            scope.launch {
-                                // Past the 30% mark → expand; otherwise snap back.
-                                if (total > 0.3f) onExpand() else dragOffsetPx.animateTo(0f)
-                            }
+                            // A short intentional pull commits the expansion.
+                            if (total > 0.22f) onExpand() else settleBack(0f)
                         },
                         onDragCancel = {
                             isDragging = false
-                            scope.launch { dragOffsetPx.animateTo(0f) }
+                            settleBack(0f)
                         },
                         // Hero morph: report the thumbnail's on-screen bounds
                         // and hide the inner image while morphing.
                         onThumbnailPositioned = { rect -> miniThumbRect = rect },
-                        hideThumbnail = morphing
+                        hideThumbnail = heroReady
                     )
                 }
             }
@@ -264,7 +285,7 @@ fun PlayerOverlay(
         // measured bounds and are actively morphing.
         val mini = miniThumbRect
         val big  = bigArtRect
-        if (morphing && mini != null && big != null && song.thumbnailUrl != null) {
+        if (heroReady && mini != null && big != null) {
             val p = progress
             // Interpolate left/top/width/height in pixels.
             val left   = (mini.left   + (big.left   - mini.left)   * p).roundToInt()
