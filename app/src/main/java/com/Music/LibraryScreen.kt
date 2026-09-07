@@ -1462,7 +1462,7 @@ fun MiniPlayer(
     onNext: () -> Unit,
     onTap: () -> Unit,
     onDragUp: ((Float) -> Unit)? = null,
-    onDragEnd: (() -> Unit)? = null,
+    onDragEnd: ((Float) -> Unit)? = null,
     onDragCancel: (() -> Unit)? = null,
     // When non-null, the thumbnail reports its on-screen bounds here and is
     // hidden (the hero image in PlayerOverlay draws on top during the morph).

@@ -27,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntRect
@@ -90,6 +91,7 @@ fun PlayerOverlay(
     // single continuous motion and the UI keeps tracking the finger until
     // release.
     var isDragging by remember { mutableStateOf(false) }
+    var releaseVelocityY by remember { mutableFloatStateOf(0f) }
 
     // ── Hero artwork morph ─────────────────────────────────────────────────
     // We measure the on-screen bounds of the mini player's thumbnail and the
@@ -110,9 +112,30 @@ fun PlayerOverlay(
         val dragRangePx = maxHeightPx * 0.5f
         val emphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
+        fun settleDurationMillis(
+            current: Float,
+            target: Float,
+            velocityY: Float
+        ): Int {
+            val distance = abs(target - current)
+            // Upward velocity grows expansion progress; downward velocity
+            // reduces it. Only velocity aimed at target accelerates settling.
+            val progressVelocity = -velocityY / dragRangePx
+            val directedSpeed = if (target > current) {
+                progressVelocity.coerceAtLeast(0f)
+            } else {
+                (-progressVelocity).coerceAtLeast(0f)
+            }
+            val speedFraction = (directedSpeed / 4f).coerceIn(0f, 1f)
+            val slowDuration = 140f + 220f * distance
+            val fastDuration = 90f + 90f * distance
+            return (slowDuration + (fastDuration - slowDuration) * speedFraction)
+                .roundToInt()
+        }
+
         // Animate from current visual position, including unfinished drag
-        // distance. Duration scales with remaining distance, preventing a
-        // short release settle from taking as long as a full tap transition.
+        // distance. Release velocity controls duration: quick flicks finish
+        // quickly; deliberate slow pulls settle more gently.
         LaunchedEffect(expanded) {
             if (isDragging) return@LaunchedEffect
             val target = if (expanded) 1f else 0f
@@ -120,11 +143,16 @@ fun PlayerOverlay(
                 (expansion.value - dragOffsetPx / dragRangePx).coerceIn(0f, 1f)
             dragOffsetPx = 0f
             expansion.snapTo(currentProgress)
-            val distance = abs(target - currentProgress)
+            val velocity = releaseVelocityY
+            releaseVelocityY = 0f
             expansion.animateTo(
                 targetValue = target,
                 animationSpec = tween(
-                    durationMillis = (170 + 190 * distance).roundToInt(),
+                    durationMillis = settleDurationMillis(
+                        currentProgress,
+                        target,
+                        velocity
+                    ),
                     easing = emphasizedEasing
                 )
             )
@@ -157,18 +185,21 @@ fun PlayerOverlay(
             dragOffsetPx += dy
         }
 
-        fun settleBack(target: Float) {
+        fun settleBack(target: Float, velocityY: Float = 0f) {
             val currentProgress =
                 (expansion.value - dragOffsetPx / dragRangePx).coerceIn(0f, 1f)
             dragOffsetPx = 0f
             scope.launch {
                 expansion.stop()
                 expansion.snapTo(currentProgress)
-                val distance = abs(target - currentProgress)
                 expansion.animateTo(
                     targetValue = target,
                     animationSpec = tween(
-                        durationMillis = (150 + 170 * distance).roundToInt(),
+                        durationMillis = settleDurationMillis(
+                            currentProgress,
+                            target,
+                            velocityY
+                        ),
                         easing = emphasizedEasing
                     )
                 )
@@ -198,11 +229,17 @@ fun PlayerOverlay(
                     onNavigateToLyrics = onNavigateToLyrics,
                     showBackChevron    = progress > 0.6f,
                     onDragDown = ::startOrContinueDrag,
-                    onDragEnd = {
+                    onDragEnd = { velocityY ->
                         val total = expansion.value - dragOffsetPx / dragRangePx
                         isDragging = false
-                        // A short intentional pull commits the collapse.
-                        if (total < 0.78f) onCollapse() else settleBack(1f)
+                        // About 6% screen travel commits. Fast downward flicks
+                        // commit even sooner and produce a faster settle.
+                        if (total < 0.88f || velocityY > 650f) {
+                            releaseVelocityY = velocityY
+                            onCollapse()
+                        } else {
+                            settleBack(1f, velocityY)
+                        }
                     },
                     onDragCancel = {
                         isDragging = false
@@ -210,10 +247,15 @@ fun PlayerOverlay(
                     },
                     // Let the user drag down from the album art too (YT Music).
                     onArtworkDragDown = ::startOrContinueDrag,
-                    onArtworkDragEnd = {
+                    onArtworkDragEnd = { velocityY ->
                         val total = expansion.value - dragOffsetPx / dragRangePx
                         isDragging = false
-                        if (total < 0.78f) onCollapse() else settleBack(1f)
+                        if (total < 0.88f || velocityY > 650f) {
+                            releaseVelocityY = velocityY
+                            onCollapse()
+                        } else {
+                            settleBack(1f, velocityY)
+                        }
                     },
                     onArtworkDragCancel = {
                         isDragging = false
@@ -258,11 +300,17 @@ fun PlayerOverlay(
                         onNext     = { viewModel.playNext() },
                         onTap      = onExpand,
                         onDragUp = ::startOrContinueDrag,
-                        onDragEnd = {
+                        onDragEnd = { velocityY ->
                             val total = expansion.value - dragOffsetPx / dragRangePx
                             isDragging = false
-                            // A short intentional pull commits the expansion.
-                            if (total > 0.22f) onExpand() else settleBack(0f)
+                            // About 6% screen travel commits. Fast upward flicks
+                            // commit even sooner and produce a faster settle.
+                            if (total > 0.12f || velocityY < -650f) {
+                                releaseVelocityY = velocityY
+                                onExpand()
+                            } else {
+                                settleBack(0f, velocityY)
+                            }
                         },
                         onDragCancel = {
                             isDragging = false
@@ -351,12 +399,14 @@ enum class VerticalDragDirection { BOTH, DOWN, UP }
 fun Modifier.verticalDrag(
     touchSlop: Float,
     onDrag: (Float) -> Unit,
-    onDragEnd: () -> Unit,
+    onDragEnd: (Float) -> Unit,
     onDragCancel: () -> Unit,
     dragDirection: VerticalDragDirection = VerticalDragDirection.BOTH
 ): Modifier = this.pointerInput(touchSlop, onDrag, onDragEnd, onDragCancel, dragDirection) {
     awaitEachGesture {
-        awaitFirstDown(requireUnconsumed = false)
+        val down = awaitFirstDown(requireUnconsumed = false)
+        val velocityTracker = VelocityTracker()
+        velocityTracker.addPosition(down.uptimeMillis, down.position)
         var totalDragY = 0f
         var totalDragX = 0f
         var isDragging = false
@@ -376,6 +426,7 @@ fun Modifier.verticalDrag(
             val change = event.changes.first()
             val dy = change.position.y - change.previousPosition.y
             val dx = change.position.x - change.previousPosition.x
+            velocityTracker.addPosition(change.uptimeMillis, change.position)
 
             if (isDragging) {
                 change.consume()
@@ -406,9 +457,10 @@ fun Modifier.verticalDrag(
                     // drags expand/collapse the player instead of being ignored,
                     // while horizontal drift during an engaged drag never breaks it.
                     isDragging = true
-                    // Consume the historical movement too so children don't
-                    // suddenly jump when we take over.
+                    // Report movement accumulated before touch slop. Dropping
+                    // this distance made short gestures feel unresponsive.
                     change.consume()
+                    onDrag(totalDragY)
                 } else if (absX > touchSlop && absX > absY * horizontalRatio) {
                     // Predominantly horizontal — hand the gesture to the child.
                     yieldedToChild = true
@@ -416,6 +468,10 @@ fun Modifier.verticalDrag(
             }
         } while (change.pressed)
 
-        if (isDragging) onDragEnd() else onDragCancel()
+        if (isDragging) {
+            onDragEnd(velocityTracker.calculateVelocity().y)
+        } else {
+            onDragCancel()
+        }
     }
 }

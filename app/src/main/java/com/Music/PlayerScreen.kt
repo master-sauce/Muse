@@ -58,10 +58,10 @@ fun PlayerContent(
     onNavigateToLyrics: () -> Unit,
     showBackChevron: Boolean = true,
     onDragDown: ((Float) -> Unit)? = null,
-    onDragEnd: (() -> Unit)? = null,
+    onDragEnd: ((Float) -> Unit)? = null,
     onDragCancel: (() -> Unit)? = null,
     onArtworkDragDown: ((Float) -> Unit)? = null,
-    onArtworkDragEnd: (() -> Unit)? = null,
+    onArtworkDragEnd: ((Float) -> Unit)? = null,
     onArtworkDragCancel: (() -> Unit)? = null,
     // When non-null, the album art reports its on-screen bounds here and is
     // hidden (the hero image in PlayerOverlay draws on top during the morph).
