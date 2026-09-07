@@ -769,9 +769,9 @@ private fun SongsTab(
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 Icon(
-                                    Icons.Default.Queue,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    Icons.Default.PlaylistAdd,
+                                    "Add to queue",
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }

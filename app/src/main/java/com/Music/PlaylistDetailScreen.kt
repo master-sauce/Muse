@@ -457,7 +457,11 @@ fun PlaylistDetailScreen(
                                             .padding(horizontal = 20.dp),
                                         contentAlignment = Alignment.CenterStart
                                     ) {
-                                        Icon(Icons.Default.Queue, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                        Icon(
+                                            Icons.Default.PlaylistAdd,
+                                            "Add to queue",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
                                     }
                                 }
                             }
