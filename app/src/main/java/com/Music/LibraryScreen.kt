@@ -1236,14 +1236,33 @@ private fun QueueTab(
         itemsIndexed(queue, key = { _, item -> item.mediaId }) { index, item ->
             ReorderableItem(reorderableState, key = item.mediaId) { isDragging ->
                 val isCurrent = item.mediaId == currentSong?.id
+                // Let row animate completely off-screen before mutating queue.
+                // Removing inside confirmValueChange disposed composition at the
+                // threshold, cutting off slide and colored-background animation.
+                var pendingDismiss by remember {
+                    mutableStateOf<SwipeToDismissBoxValue?>(null)
+                }
                 val dismissState = rememberSwipeToDismissBoxState(
-                    confirmValueChange = {
-                        if (it == SwipeToDismissBoxValue.EndToStart) {
-                            onRemove(item)
-                            true
-                        } else false
+                    confirmValueChange = { value ->
+                        val accepted = value == SwipeToDismissBoxValue.EndToStart
+                        if (accepted) pendingDismiss = value
+                        accepted
                     }
                 )
+                // Finish Material's slow settle spring 160 ms after release.
+                // Full error color still appears before queue mutation runs.
+                LaunchedEffect(pendingDismiss) {
+                    val target = pendingDismiss ?: return@LaunchedEffect
+                    delay(160)
+                    if (pendingDismiss == target && dismissState.currentValue != target) {
+                        dismissState.snapTo(target)
+                    }
+                }
+                LaunchedEffect(dismissState.currentValue) {
+                    if (dismissState.currentValue == SwipeToDismissBoxValue.EndToStart) {
+                        onRemove(item)
+                    }
+                }
 
                 SwipeToDismissBox(
                     state = dismissState,

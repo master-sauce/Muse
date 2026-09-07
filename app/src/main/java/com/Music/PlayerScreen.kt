@@ -48,6 +48,7 @@ import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.Music.data.local.isVideo
 import com.Music.data.remote.LyricsState
+import kotlinx.coroutines.delay
 
 @OptIn(UnstableApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -922,30 +923,54 @@ private fun UpNextPanel(
                 //    queue (appended after any already-queued songs) via
                 //    onQueueItem.
                 //
-                // confirmValueChange returns false for both on purpose: we
-                // trigger the action ourselves and never want the box to *park*
-                // at the dismissed value. If it did, its colored background
-                // would stay drawn (and could be inherited by the slot that
-                // slides up into the dismissed row's place) — the "ghost that
-                // won't go away" bug. By returning false the box always snaps
-                // back toward rest; for removal the list then drops the item
-                // (disposing the row's composition before any dismissed state
-                // can linger), and for queue-add the row simply returns to its
-                // place (now relocated to the queue zone by the viewmodel). Pass
-                // `item` (identity), not `index`: the row's positional index can
-                // be stale by the time the confirm callback fires.
+                // Accept dismissal first. Mutation runs from LaunchedEffect only
+                // after currentValue reaches an edge, meaning row completes its
+                // full slide and colored background fills its slot before list
+                // changes. Queue-add keeps the song in Up Next, so give that row
+                // a fresh composition after dismissal; otherwise its remembered
+                // edge state follows it to its new position and leaves color or
+                // visibly slides backward to Settled.
+                val swipeGenerations = remember { mutableStateMapOf<String, Int>() }
                 LazyColumn(state = lazyListState, modifier = Modifier.fillMaxWidth()) {
-                    itemsIndexed(items, key = { _, item -> item.mediaId }) { index, item ->
+                    itemsIndexed(
+                        items,
+                        key = { _, item -> "${item.mediaId}:${swipeGenerations[item.mediaId] ?: 0}" }
+                    ) { index, item ->
+                        var pendingDismiss by remember {
+                            mutableStateOf<SwipeToDismissBoxValue?>(null)
+                        }
                         val dismissState = rememberSwipeToDismissBoxState(
-                            confirmValueChange = {
-                                when (it) {
-                                    SwipeToDismissBoxValue.StartToEnd -> onQueueItem(item)
-                                    SwipeToDismissBoxValue.EndToStart -> onRemove(item)
-                                    else -> {}
-                                }
-                                false
+                            confirmValueChange = { value ->
+                                val accepted = value == SwipeToDismissBoxValue.StartToEnd ||
+                                    value == SwipeToDismissBoxValue.EndToStart
+                                if (accepted) pendingDismiss = value
+                                accepted
                             }
                         )
+                        // confirmValueChange runs after finger release. Keep 160
+                        // ms of Material glide, then finish at edge; avoids slow
+                        // spring without snapping row while finger is still down.
+                        LaunchedEffect(pendingDismiss) {
+                            val target = pendingDismiss ?: return@LaunchedEffect
+                            delay(160)
+                            if (pendingDismiss == target &&
+                                dismissState.currentValue != target) {
+                                dismissState.snapTo(target)
+                            }
+                        }
+                        LaunchedEffect(dismissState.currentValue) {
+                            when (dismissState.currentValue) {
+                                SwipeToDismissBoxValue.StartToEnd -> {
+                                    // Replace dismissed row state instead of
+                                    // animating it backward after relocation.
+                                    swipeGenerations[item.mediaId] =
+                                        (swipeGenerations[item.mediaId] ?: 0) + 1
+                                    onQueueItem(item)
+                                }
+                                SwipeToDismissBoxValue.EndToStart -> onRemove(item)
+                                SwipeToDismissBoxValue.Settled -> Unit
+                            }
+                        }
                         SwipeToDismissBox(
                             state = dismissState,
                             backgroundContent = {
