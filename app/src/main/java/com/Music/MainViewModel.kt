@@ -669,18 +669,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // The manual queue just drained (the last queued song
-                    // finished and was removed above). If we had saved the
-                    // user's shuffle state to restore, do so now so playback
-                    // continues shuffled over the remaining playlist / library
-                    // songs — the requested "everything after the queue
-                    // continues in shuffle" behaviour.
-                    if (manualQueueIds.isEmpty() && shuffleRestoreOnDrain != -1) {
-                        val restore = shuffleRestoreOnDrain == 1
-                        shuffleRestoreOnDrain = -1
-                        player.shuffleModeEnabled = restore
-                        _isShuffled.value = restore
-                    }
+                    // Restore shuffle intent once last manually queued song has
+                    // been consumed. This keeps a baked traversal baked instead
+                    // of enabling native shuffle on top of it and re-rolling the
+                    // remaining Up Next pool.
+                    restoreShuffleAfterQueueDrain(player)
                 }
 
                 val song = _songs.value.find { it.id == mediaItem?.mediaId }
@@ -1239,40 +1232,95 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun enterManualQueueMode() {
         val player = controller ?: return
-        // On the first manual-queue action, temporarily disable shuffle so the
-        // queued songs play in the exact order the user added them (right after
-        // the current song). We remember whether shuffle was on so that once
-        // the queue drains we can restore it — letting the remaining playlist
-        // / library songs continue in shuffle, as requested.
-        //
-        // We intentionally do NOT truncate the timeline here. The playlist /
-        // library songs that were already loaded remain in the timeline AFTER
-        // the queued songs, so once the manual queue drains playback naturally
-        // continues with the rest of the playlist / library the user was in —
-        // instead of stopping dead the way the old truncate-and-replace
-        // behaviour did. The current song is also NOT added to
-        // [manualQueueIds]: only songs the user explicitly queued belong there,
-        // which keeps the consume logic in [onMediaItemTransition] from
-        // removing playlist songs after they play.
-        if (manualQueueIds.isEmpty()) {
-            // Use the UI's shuffle state (_isShuffled), not the player flag:
-            // after [reshuffle] the flag is off but _isShuffled is on (the
-            // shuffle is baked into timeline order), and queueing a song should
-            // still remember that intent so the glow restores when the queue
-            // drains — otherwise the button would lose its glow mid-queue even
-            // though the user had shuffle on.
-            if (_isShuffled.value) {
-                shuffleRestoreOnDrain = 1
-                // Suppress the flag-update listener: if shuffle was baked-in
-                // the player flag is already off (no flip happens, no listener
-                // fires), but if shuffle was native (flag on) flipping it off
-                // would otherwise fire onShuffleModeEnabledChanged and persist
-                // shuffle off — we want the restore-on-drain path to own the
-                // re-enable, not a persisted "off" that survives restarts.
-                if (player.shuffleModeEnabled) {
-                    suppressShuffleFlagUpdate = true
-                    player.shuffleModeEnabled = false
-                }
+        // On first manual-queue action, hold native shuffle OFF so inserted
+        // songs can form an exact contiguous queue after current song. Preserve
+        // user's shuffle intent for restoration after queue drains.
+        if (manualQueueIds.isEmpty() && _isShuffled.value) {
+            shuffleRestoreOnDrain = 1
+
+            // Critical: simply switching native shuffle off changes Up Next
+            // from ExoPlayer's shuffled traversal to raw timeline order. That
+            // made remaining songs appear to reshuffle whenever a panel row was
+            // swiped into queue. Convert current native traversal into physical
+            // timeline order first; sequential playback then shows same pool.
+            if (player.shuffleModeEnabled) {
+                bakeNativeShuffleTraversalIntoTimeline(player)
+            }
+            _isShuffled.value = false
+        }
+    }
+
+    /**
+     * Convert ExoPlayer's current native shuffle traversal into raw timeline
+     * order without replacing or re-preparing current media item.
+     *
+     * All non-current items are removed in two ranges and added back around
+     * current item in their existing shuffle traversal. Native shuffle can then
+     * be disabled while Up Next order remains byte-for-byte stable.
+     */
+    private fun bakeNativeShuffleTraversalIntoTimeline(player: Player) {
+        if (!player.shuffleModeEnabled || player.mediaItemCount <= 1) return
+        val timeline = player.currentTimeline
+        if (timeline.isEmpty) return
+
+        val traversal = mutableListOf<Int>()
+        val seen = mutableSetOf<Int>()
+        var index = timeline.getFirstWindowIndex(true)
+        while (index != C.INDEX_UNSET && seen.add(index)) {
+            traversal.add(index)
+            index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, true)
+        }
+        if (traversal.size != player.mediaItemCount) return
+
+        val currentTimelineIndex = player.currentMediaItemIndex
+        val currentTraversalIndex = traversal.indexOf(currentTimelineIndex)
+        if (currentTraversalIndex < 0) return
+
+        val orderedItems = traversal.map(player::getMediaItemAt)
+        val beforeCurrent = orderedItems.take(currentTraversalIndex)
+        val afterCurrent = orderedItems.drop(currentTraversalIndex + 1)
+
+        // Disable first so timeline edits cannot regenerate ShuffleOrder. Guard
+        // listener because this is internal queue suppression, not user intent.
+        suppressShuffleFlagUpdate = true
+        player.shuffleModeEnabled = false
+
+        // Keep current MediaItem instance in player throughout, avoiding seek,
+        // prepare, playback-position reset, and audible interruption.
+        if (currentTimelineIndex + 1 < player.mediaItemCount) {
+            player.removeMediaItems(currentTimelineIndex + 1, player.mediaItemCount)
+        }
+        if (currentTimelineIndex > 0) {
+            player.removeMediaItems(0, currentTimelineIndex)
+        }
+        if (beforeCurrent.isNotEmpty()) player.addMediaItems(0, beforeCurrent)
+        if (afterCurrent.isNotEmpty()) {
+            player.addMediaItems(beforeCurrent.size + 1, afterCurrent)
+        }
+        shuffleBakedIn = true
+        updateQueue()
+    }
+
+    /** Restore pending shuffle intent without shuffling an already-baked tail. */
+    private fun restoreShuffleAfterQueueDrain(player: Player) {
+        if (manualQueueIds.isNotEmpty() || shuffleRestoreOnDrain == -1) return
+        val restore = shuffleRestoreOnDrain == 1
+        shuffleRestoreOnDrain = -1
+        when {
+            restore && shuffleBakedIn -> {
+                // Traversal already has desired shuffled order. Native shuffle
+                // would randomize it again, so restore only visible intent.
+                _isShuffled.value = true
+            }
+            restore -> {
+                // Shuffle was requested while an originally unshuffled manual
+                // queue was active. Bake one shuffle now, after queue drains.
+                bakeShuffleIntoTimeline(player, player.currentMediaItemIndex)
+                shuffleBakedIn = true
+                _isShuffled.value = true
+            }
+            else -> {
+                if (player.shuffleModeEnabled) player.shuffleModeEnabled = false
                 _isShuffled.value = false
             }
         }
@@ -1329,16 +1377,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 player.removeMediaItem(i)
             }
         }
-        // If removing this song drained the manual queue, restore the shuffle
-        // state we saved when the queue was started — same as the auto-advance
-        // path in [onMediaItemTransition] — so playback continues shuffled over
-        // the remaining playlist / library songs.
-        if (manualQueueIds.isEmpty() && shuffleRestoreOnDrain != -1) {
-            val restore = shuffleRestoreOnDrain == 1
-            shuffleRestoreOnDrain = -1
-            player.shuffleModeEnabled = restore
-            _isShuffled.value = restore
-        }
+        // Same drain handling as automatic playback transition. Avoid enabling
+        // native shuffle over an already-baked traversal.
+        restoreShuffleAfterQueueDrain(player)
         updateQueue()
     }
 
@@ -1424,13 +1465,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun queueTimelineItem(item: MediaItem) {
         val player = controller ?: return
         val mediaId = item.mediaId
+        if (mediaId == player.currentMediaItem?.mediaId) return
+
+        enterManualQueueMode()
+
+        // Queue-mode entry may bake native shuffle traversal into raw timeline,
+        // changing every timeline index. Resolve selected row again by identity
+        // after that conversion; using pre-conversion index moved wrong song.
         var fromIndex = -1
         for (i in 0 until player.mediaItemCount) {
             if (player.getMediaItemAt(i).mediaId == mediaId) { fromIndex = i; break }
         }
-        if (fromIndex < 0) return
-        if (fromIndex == player.currentMediaItemIndex) return
-        enterManualQueueMode()
+        if (fromIndex < 0 || fromIndex == player.currentMediaItemIndex) return
+
         val captured = player.getMediaItemAt(fromIndex)
         player.removeMediaItem(fromIndex)
         player.addMediaItem(queueZoneEndIndex(), captured)
@@ -1991,67 +2038,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val player = controller ?: return
         val mediaId = item.mediaId
 
-        // Resolve the media id to its real timeline index. Two paths:
-        //  • Shuffle OFF: MOVE the item to the very end of the timeline so it
-        //    drops out of the visible Up Next window (the panel only lists
-        //    items after the current index, and ExoPlayer walks the timeline in
-        //    order) but stays in the list — so the song can reappear in a later
-        //    reshuffle (reshuffle re-rolls the "rest" bucket, which now
-        //    includes this pushed-back song) without being gone for the rest
-        //    of the session. No ShuffleOrder regeneration in non-shuffle mode.
-        //  • Shuffle ON: REMOVE the item from the timeline outright. Under
-        //    shuffle mode, moveMediaItem regenerates ExoPlayer's ShuffleOrder
-        //    (cloneAndInsert drops the moved item at a RANDOM spot in the
-        //    traversal, not the end), which re-rolls the order of every other
-        //    upcoming song — the "swipe-to-remove reshuffles the whole list"
-        //    bug. removeMediaItem only does a cloneAndRemove, which preserves
-        //    the relative order of the remaining items, so the rest of Up Next
-        //    stays put. The removed song is remembered in
-        //    [removedFromUpNextIds] so [reshuffle] can re-inject it into the
-        //    next re-roll (and it's still in the library / playlist DB, so a
-        //    fresh playback from the source list always brings it back too).
+        // Remove outright in every playback mode. Moving a non-shuffled row to
+        // timeline end retained its Compose key; LazyColumn followed that same
+        // key to its new position and jumped viewport to bottom. Removal disposes
+        // row instead, so next row takes its place and scroll position remains
+        // stable. Remember id so explicit reshuffle can still restore song.
         for (i in 0 until player.mediaItemCount) {
             if (player.getMediaItemAt(i).mediaId == mediaId) {
-                if (player.shuffleModeEnabled) {
-                    player.removeMediaItem(i)
-                    removedFromUpNextIds.add(mediaId)
-                } else {
-                    val lastIndex = player.mediaItemCount - 1
-                    if (i < lastIndex) player.moveMediaItem(i, lastIndex)
-                }
+                player.removeMediaItem(i)
+                removedFromUpNextIds.add(mediaId)
                 break
             }
         }
         manualQueueIds.remove(mediaId)
-        // If that drained the manual queue, restore the shuffle state saved in
-        // [enterManualQueueMode] — same as [removeFromQueue] /
-        // [onMediaItemTransition]. Without this, swiping away the last queued
-        // song via Up Next leaves the glow off for good. Two restore shapes:
-        //   • Baked entry (shuffleBakedIn): the tail was already in shuffled
-        //     order (the queue only inserted songs, never reordered the tail),
-        //     so just re-light _isShuffled — no rebuild, no flag flip.
-        //   • Native entry: shuffle was on via the player flag before the queue
-        //     (flipped off on entry). Flipping it back on would regenerate
-        //     ExoPlayer's ShuffleOrder and re-roll the whole tail — the same
-        //     root cause as the swipe-to-remove reshuffle bug. Bake the tail
-        //     into shuffled order in place instead; flag stays off, no
-        //     regeneration, no reshuffle.
-        if (manualQueueIds.isEmpty() && shuffleRestoreOnDrain != -1) {
-            val restore = shuffleRestoreOnDrain == 1
-            shuffleRestoreOnDrain = -1
-            when {
-                restore && shuffleBakedIn -> _isShuffled.value = true
-                restore -> {
-                    bakeShuffleIntoTimeline(player, player.currentMediaItemIndex)
-                    shuffleBakedIn = true
-                    _isShuffled.value = true
-                }
-                else -> {
-                    player.shuffleModeEnabled = false
-                    _isShuffled.value = false
-                }
-            }
-        }
+        restoreShuffleAfterQueueDrain(player)
         updateQueue()
     }
 
