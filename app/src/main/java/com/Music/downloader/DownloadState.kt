@@ -250,6 +250,16 @@ object DownloadState {
         if (this::appContext.isInitialized) return
         appContext = context.applicationContext
 
+        // Re-sync the auto-add StateFlow with what's actually persisted.
+        // The field initializer ran during object construction, BEFORE
+        // appContext was set, so loadAutoAddPlaylistId() returned null and the
+        // StateFlow started at null even when a playlist id was saved from a
+        // previous session. Without this, the UI would show "Off" while
+        // currentAutoAddPlaylistId() (which re-reads prefs) still returned the
+        // old id — so downloads kept auto-adding to a playlist the user thought
+        // they'd turned off.
+        _autoAddPlaylistId.value = loadAutoAddPlaylistId()
+
         val db = androidx.room.Room.databaseBuilder(
             appContext, com.Music.data.local.AppDatabase::class.java, "muse-db"
         )
