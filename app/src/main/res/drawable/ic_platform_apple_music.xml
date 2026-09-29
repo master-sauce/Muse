@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorControlNormal">
+    <!--
+      Apple Music: rounded-square badge with two beamed eighth notes cut out.
+      evenOdd subtracts the notes from the badge.
+      - Noteheads: ellipses (rounder than circles, slightly tilted).
+      - Beam: rounded top corners (no sharp 90° at stem tops).
+      - Stems: straight, connecting noteheads to beam.
+    -->
+    <path
+        android:fillColor="@android:color/white"
+        android:fillType="evenOdd"
+        android:pathData="
+            M6,1 h12 c2.76,0 5,2.24 5,5 v12 c0,2.76 -2.24,5 -5,5 H6
+            c-2.76,0 -5,-2.24 -5,-5 V6 c0,-2.76 2.24,-5 5,-5 z
+            M7.5,16.3 a2.3,1.85 -15 1 0 4.0,0 a2.3,1.85 -15 1 0 -4.0,0 z
+            M13.5,16.3 a2.3,1.85 -15 1 0 4.0,0 a2.3,1.85 -15 1 0 -4.0,0 z
+            M10.3,15.4 V7.4 h1.1 v8.0 z
+            M16.3,15.4 V7.4 h1.1 v8.0 z
+            M11.0,7.4 h5.8 a0.7,0.7 0 0 1 0.7,0.7 h-7.2 a0.7,0.7 0 0 1 0.7,-0.7 z
+        "/>
+</vector>
