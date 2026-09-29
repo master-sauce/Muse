@@ -24,7 +24,7 @@ import com.Music.MainViewModel.ShareLinkState
 /**
  * Platform picker for the "Share link" flow, shared by the song-row menu and
  * the player overflow menu. Lists YouTube, YouTube Music, Spotify, Apple
- * Music (resolved via song.link) plus an "Original link" no-network fallback.
+ * Music (resolved via the link resolver) plus an "Original link" no-network fallback.
  * Shows a spinner overlay while [ShareLinkState.LOADING].
  */
 private data class PlatformOption(
@@ -57,7 +57,7 @@ fun ShareLinkPlatformDialog(
                 if (state == ShareLinkState.LOADING) {
                     Column {
                         Text(
-                            "Resolving \"${songTitle}\" via song.link…",
+                            "Resolving \"${songTitle}\"…",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(Modifier.height(16.dp))

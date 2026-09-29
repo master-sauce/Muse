@@ -8,6 +8,7 @@ import android.provider.OpenableColumns
 import android.util.Log
 import com.Music.data.local.*
 import com.Music.data.remote.OdesliService
+import com.Music.data.remote.tempRoutingToken
 import com.Music.downloader.DownloadManager
 import com.Music.downloader.PlaylistEntry
 import com.Music.downloader.SearchResult
@@ -28,6 +29,9 @@ class MusicRepository(
 
     val allSongs: Flow<List<SongEntity>> = songDao.getAllSongs()
     val playlistsWithSongs: Flow<List<PlaylistWithSongs>> = playlistDao.getPlaylistsWithSongs()
+
+    /** Exposed so callers can resolve cross-platform links via the resolver. */
+    val odesli: OdesliService get() = odesliService
 
     fun getPlaylistSongs(playlistId: Long): Flow<List<SongEntity>> =
         playlistDao.getSongsInPlaylist(playlistId)
@@ -59,21 +63,26 @@ class MusicRepository(
 
         if (url.contains("spotify.com") || url.contains("apple.com")) {
             try {
-                val resp   = odesliService.getLinks(url)
+                val resp = odesliService.getLinks(url, tempRoutingToken())
                 val entity = resp.entitiesByUniqueId[resp.entityUniqueId]
                 resp.linksByPlatform["youtube"]?.url?.let {
-                    finalUrl     = it
+                    finalUrl = it
                     metaThumbnail = entity?.thumbnailUrl
-                    metaArtist   = entity?.artistName
+                    metaArtist = entity?.artistName
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
 
         // Use the cancellable info fetch (processId-aware) so that a batch
         // cancel can interrupt this phase too, not just the download phase.
-        val info = try { downloadManager.getVideoInfo(finalUrl, processId) }
-        catch (e: com.yausername.youtubedl_android.YoutubeDL.CanceledException) { throw e }
-        catch (_: Exception) { null }
+        val info = try {
+            downloadManager.getVideoInfo(finalUrl, processId)
+        } catch (e: com.yausername.youtubedl_android.YoutubeDL.CanceledException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
 
         // Deeper check: see if we already have this song by its unique provider ID (e.g. YouTube video ID)
         val infoId = info?.id
@@ -93,17 +102,19 @@ class MusicRepository(
         // shows first in CUSTOM mode. createdAt still drives Newest / Oldest.
         val songId = info?.id ?: System.currentTimeMillis().toString()
         songDao.shiftAllSortOrders()
-        songDao.insertSong(SongEntity(
-            id           = songId,
-            title        = info?.title ?: file.nameWithoutExtension,
-            artist       = metaArtist ?: info?.uploader ?: "Unknown Artist",
-            filePath     = file.absolutePath,
-            duration     = info?.duration?.times(1000L) ?: 0L,
-            thumbnailUrl = metaThumbnail ?: info?.thumbnail,
-            sourceUrl    = url,
-            sortOrder    = 0,
-            createdAt    = System.currentTimeMillis()
-        ))
+        songDao.insertSong(
+            SongEntity(
+                id = songId,
+                title = info?.title ?: file.nameWithoutExtension,
+                artist = metaArtist ?: info?.uploader ?: "Unknown Artist",
+                filePath = file.absolutePath,
+                duration = info?.duration?.times(1000L) ?: 0L,
+                thumbnailUrl = metaThumbnail ?: info?.thumbnail,
+                sourceUrl = url,
+                sortOrder = 0,
+                createdAt = System.currentTimeMillis()
+            )
+        )
         songId
     }
 
@@ -288,45 +299,49 @@ class MusicRepository(
                 .substringBeforeLast(".")
                 .trim()
 
-            val title  = embeddedTitle
+            val title = embeddedTitle
                 ?: cleanFileName.takeIf { it.isNotBlank() }
                 ?: "Unknown Title"
             val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
                 ?.takeIf { it.isNotBlank() } ?: "Unknown Artist"
-            
+
             if (isLocalSongImported(title, artist)) {
                 return@withContext "duplicate"
             }
 
-            val durMs  = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val durMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull() ?: 0L
-            
+
             val ext = fileName.substringAfterLast(".", "mp3").lowercase()
 
-            val destDir  = File(context.getExternalFilesDir(null), "imported").also { it.mkdirs() }
+            val destDir = File(context.getExternalFilesDir(null), "imported").also { it.mkdirs() }
             val destFile = File(destDir, "${System.currentTimeMillis()}.$ext")
             context.contentResolver.openInputStream(uri)?.use { it.copyTo(destFile.outputStream()) }
                 ?: throw Exception("Cannot open file")
 
             // Insert at the TOP of the user's custom order (see downloadAndSave).
             songDao.shiftAllSortOrders()
-            songDao.insertSong(SongEntity(
-                id           = "local_${destFile.name}",
-                title        = title,
-                artist       = artist,
-                filePath     = destFile.absolutePath,
-                duration     = durMs,
-                thumbnailUrl = null,
-                sourceUrl    = uri.toString(),
-                sortOrder    = 0,
-                createdAt    = System.currentTimeMillis()
-            ))
+            songDao.insertSong(
+                SongEntity(
+                    id = "local_${destFile.name}",
+                    title = title,
+                    artist = artist,
+                    filePath = destFile.absolutePath,
+                    duration = durMs,
+                    thumbnailUrl = null,
+                    sourceUrl = uri.toString(),
+                    sortOrder = 0,
+                    createdAt = System.currentTimeMillis()
+                )
+            )
             null
-        } finally { retriever.release() }
+        } finally {
+            retriever.release()
+        }
     }
 
     suspend fun importFromFolder(treeUri: Uri) = withContext(Dispatchers.IO) {
-        val docId       = DocumentsContract.getTreeDocumentId(treeUri)
+        val docId = DocumentsContract.getTreeDocumentId(treeUri)
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
         context.contentResolver.query(
             childrenUri,
@@ -340,9 +355,13 @@ class MusicRepository(
                 val mime = cursor.getString(2) ?: continue
                 if (!mime.startsWith("audio/") && !mime.startsWith("video/")) continue
                 val fileUri = DocumentsContract.buildDocumentUriUsingTree(
-                    treeUri, cursor.getString(0))
-                try { importFromUri(fileUri) }
-                catch (e: Exception) { Log.w("MusicRepo", "Skipped: ${e.message}") }
+                    treeUri, cursor.getString(0)
+                )
+                try {
+                    importFromUri(fileUri)
+                } catch (e: Exception) {
+                    Log.w("MusicRepo", "Skipped: ${e.message}")
+                }
             }
         }
     }
@@ -441,6 +460,7 @@ class MusicRepository(
 
     fun getLastPlayedSongId(): String? = prefs.getString("last_song_id", null)
     fun getLastPlayedPosition(): Long = prefs.getLong("last_position", 0L)
+
     /** null = was playing from Library / ad-hoc list, not a playlist. */
     fun getLastPlayedPlaylistId(): Long? =
         prefs.getLong("last_playlist_id", -1L).takeIf { it != -1L }

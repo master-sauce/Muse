@@ -68,31 +68,32 @@ fun LibraryScreen(
     onNavigateToPlaylist: (Long) -> Unit,
     onNavigateToYouTubeSearch: () -> Unit
 ) {
-    val songs           by viewModel.songs.collectAsState()
-    val songSortMode    by viewModel.songSortMode.collectAsState()
-    val currentSong     by viewModel.currentSong.collectAsState()
-    val isPlaying       by viewModel.isPlaying.collectAsState()
-    val isDownloading   by viewModel.isDownloading.collectAsState()
+    val songs by viewModel.songs.collectAsState()
+    val songSortMode by viewModel.songSortMode.collectAsState()
+    val currentSong by viewModel.currentSong.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState()
+    val isDownloading by viewModel.isDownloading.collectAsState()
     val activeDownloads by viewModel.activeDownloads.collectAsState()
-    val isImporting     by viewModel.isImporting.collectAsState()
-    val selectedIds     by viewModel.selectedIds.collectAsState()
-    val inSelection     = selectedIds.isNotEmpty()
-    val isZipping       by viewModel.isZipping.collectAsState()
-    val playlists       by viewModel.playlists.collectAsState()
-    val queue           by viewModel.queue.collectAsState()
-    val playlistFetch   by viewModel.playlistFetch.collectAsState()
-    val batchDownload   by viewModel.batchDownload.collectAsState()
+    val isImporting by viewModel.isImporting.collectAsState()
+    val selectedIds by viewModel.selectedIds.collectAsState()
+    val inSelection = selectedIds.isNotEmpty()
+    val isZipping by viewModel.isZipping.collectAsState()
+    val playlists by viewModel.playlists.collectAsState()
+    val queue by viewModel.queue.collectAsState()
+    val playlistFetch by viewModel.playlistFetch.collectAsState()
+    val batchDownload by viewModel.batchDownload.collectAsState()
     val autoAddPlaylistId by viewModel.autoAddPlaylistId.collectAsState()
+    val shareLinkState by viewModel.shareLinkState.collectAsState()
 
     // Persist the active tab across navigation (e.g. returning from a
     // playlist detail screen lands back on the Playlists tab) and across
     // configuration changes.
-    var selectedTab          by rememberSaveable { mutableIntStateOf(0) }
-    var showAdd              by remember { mutableStateOf(false) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var showAdd by remember { mutableStateOf(false) }
     var showNewPlaylistDialog by remember { mutableStateOf(false) }
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
     var showConfirmDeleteSelected by remember { mutableStateOf(false) }
-    var showShareMethodDialog  by remember { mutableStateOf(false) }
+    var showShareMethodDialog by remember { mutableStateOf(false) }
     val addSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var searchQuery by remember { mutableStateOf("") }
@@ -122,7 +123,7 @@ fun LibraryScreen(
         if (searchQuery.isEmpty()) songs
         else songs.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
-            it.artist.contains(searchQuery, ignoreCase = true)
+                    it.artist.contains(searchQuery, ignoreCase = true)
         }
     }
 
@@ -255,16 +256,18 @@ fun LibraryScreen(
                                         Icon(Icons.Default.Sort, contentDescription = "Sort")
                                     }
                                     DropdownMenu(
-                                        expanded         = showSortMenu,
+                                        expanded = showSortMenu,
                                         onDismissRequest = { showSortMenu = false }
                                     ) {
                                         DropdownMenuItem(
-                                            text        = { Text("Newest first") },
+                                            text = { Text("Newest first") },
                                             leadingIcon = { Icon(Icons.Default.ArrowDownward, null) },
                                             trailingIcon = {
                                                 if (songSortMode == SongSortMode.NEWEST) {
-                                                    Icon(Icons.Default.Check, null,
-                                                        tint = MaterialTheme.colorScheme.primary)
+                                                    Icon(
+                                                        Icons.Default.Check, null,
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
                                                 }
                                             },
                                             onClick = {
@@ -273,12 +276,14 @@ fun LibraryScreen(
                                             }
                                         )
                                         DropdownMenuItem(
-                                            text        = { Text("Oldest first") },
+                                            text = { Text("Oldest first") },
                                             leadingIcon = { Icon(Icons.Default.ArrowUpward, null) },
                                             trailingIcon = {
                                                 if (songSortMode == SongSortMode.OLDEST) {
-                                                    Icon(Icons.Default.Check, null,
-                                                        tint = MaterialTheme.colorScheme.primary)
+                                                    Icon(
+                                                        Icons.Default.Check, null,
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
                                                 }
                                             },
                                             onClick = {
@@ -287,12 +292,14 @@ fun LibraryScreen(
                                             }
                                         )
                                         DropdownMenuItem(
-                                            text        = { Text("Custom order") },
+                                            text = { Text("Custom order") },
                                             leadingIcon = { Icon(Icons.Default.DragHandle, null) },
                                             trailingIcon = {
                                                 if (songSortMode == SongSortMode.CUSTOM) {
-                                                    Icon(Icons.Default.Check, null,
-                                                        tint = MaterialTheme.colorScheme.primary)
+                                                    Icon(
+                                                        Icons.Default.Check, null,
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
                                                 }
                                             },
                                             onClick = {
@@ -327,7 +334,7 @@ fun LibraryScreen(
             Modifier
                 .fillMaxSize()
                 .padding(
-                    top    = padding.calculateTopPadding(),
+                    top = padding.calculateTopPadding(),
                     bottom = padding.calculateBottomPadding() + bottomInset
                 )
         ) {
@@ -337,36 +344,53 @@ fun LibraryScreen(
             // when only a batch is running (avoids a redundant "blue thingy").
             AnimatedVisibility(
                 visible = activeDownloads.isNotEmpty() || isImporting,
-                enter   = expandVertically() + fadeIn(),
-                exit    = shrinkVertically() + fadeOut()
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
             ) {
                 Surface(
-                    color    = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
                     modifier = Modifier.fillMaxWidth().shadow(4.dp)
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         if (isImporting) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-                                Icon(Icons.Default.UploadFile, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.UploadFile,
+                                    null,
+                                    Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                                 Spacer(Modifier.width(8.dp))
-                                Text("Importing songs...", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Importing songs...",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
                                 Spacer(Modifier.weight(1f))
                                 CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
                             }
                         }
-                        
+
                         activeDownloads.values.forEach { task ->
                             Column(Modifier.padding(vertical = 4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Download, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Icon(
+                                        Icons.Default.Download,
+                                        null,
+                                        Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text       = "${task.title ?: "Fetching info..."} • ${task.progress.toInt()}%",
-                                        style      = MaterialTheme.typography.labelMedium,
+                                        text = "${task.title ?: "Fetching info..."} • ${task.progress.toInt()}%",
+                                        style = MaterialTheme.typography.labelMedium,
                                         fontWeight = FontWeight.Medium,
-                                        maxLines   = 1,
-                                        overflow   = TextOverflow.Ellipsis,
-                                        modifier   = Modifier.weight(1f)
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
                                     )
                                     // X button to cancel this download mid-flight
                                     IconButton(
@@ -383,9 +407,9 @@ fun LibraryScreen(
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 LinearProgressIndicator(
-                                    progress   = { task.progress / 100f },
-                                    modifier   = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                                    color      = MaterialTheme.colorScheme.primary,
+                                    progress = { task.progress / 100f },
+                                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                                    color = MaterialTheme.colorScheme.primary,
                                     trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                                 )
                             }
@@ -411,15 +435,15 @@ fun LibraryScreen(
             ) { tab ->
                 when (tab) {
                     0 -> SongsTab(
-                        songs           = filteredSongs,
-                        currentSong     = currentSong,
-                        isPlaying       = isPlaying,
-                        selectedIds     = selectedIds,
-                        inSelection     = inSelection,
-                        playlists       = playlists.map { it.playlist },
-                        queue           = queue,
-                        canReorder      = songSortMode == SongSortMode.CUSTOM,
-                        onPlay          = { song ->
+                        songs = filteredSongs,
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                        selectedIds = selectedIds,
+                        inSelection = inSelection,
+                        playlists = playlists.map { it.playlist },
+                        queue = queue,
+                        canReorder = songSortMode == SongSortMode.CUSTOM,
+                        onPlay = { song ->
                             if (song.id != currentSong?.id) {
                                 viewModel.playSong(song)
                             }
@@ -427,41 +451,50 @@ fun LibraryScreen(
                             // big player. The mini player appears automatically
                             // once a song is loaded.
                         },
-                        onPlayNext      = { song -> viewModel.playNext(song) },
-                        onAddToQueue    = { song -> viewModel.addToQueue(song) },
+                        onPlayNext = { song -> viewModel.playNext(song) },
+                        onAddToQueue = { song -> viewModel.addToQueue(song) },
                         onRemoveFromQueue = { id -> viewModel.removeFromQueue(id) },
-                        onLongPress     = { id -> viewModel.toggleSelect(id) },
-                        onToggleSelect  = { id -> viewModel.toggleSelect(id) },
-                        onDelete        = { song -> viewModel.deleteSong(song) },
-                        onShareAsLink   = { song -> viewModel.shareSongAsLink(song) },
+                        onLongPress = { id -> viewModel.toggleSelect(id) },
+                        onToggleSelect = { id -> viewModel.toggleSelect(id) },
+                        onDelete = { song -> viewModel.deleteSong(song) },
+                        onShareAsLink = { song -> viewModel.shareSongAsLink(song) },
+                        onShareAsLinkOnPlatform = { song, platform ->
+                            viewModel.shareSongAsLinkOnPlatform(
+                                song,
+                                platform
+                            )
+                        },
+                        shareLinkState = shareLinkState,
                         onAddToPlaylist = { songId, plId -> viewModel.addSongToPlaylist(plId, songId) },
-                        onStartDrag     = { viewModel.startDrag() },
-                        onMove          = { from, to -> viewModel.moveSong(from, to) },
-                        onEndDrag       = { viewModel.endDrag() },
-                        onOpenAdd       = { showAdd = true },
-                        isFiltered      = searchQuery.isNotEmpty()
+                        onStartDrag = { viewModel.startDrag() },
+                        onMove = { from, to -> viewModel.moveSong(from, to) },
+                        onEndDrag = { viewModel.endDrag() },
+                        onOpenAdd = { showAdd = true },
+                        isFiltered = searchQuery.isNotEmpty()
                     )
+
                     1 -> QueueTab(
-                        queue       = queue,
+                        queue = queue,
                         currentSong = currentSong,
-                        onPlayItem  = { item ->
+                        onPlayItem = { item ->
                             if (item.mediaId != currentSong?.id) {
                                 viewModel.playFromQueue(item)
                             }
                             onNavigateToPlayer()
                         },
-                        onRemove    = { item -> viewModel.removeFromQueue(item.mediaId) },
-                        onMove      = { from, to -> viewModel.moveQueueItem(from, to) }
+                        onRemove = { item -> viewModel.removeFromQueue(item.mediaId) },
+                        onMove = { from, to -> viewModel.moveQueueItem(from, to) }
                     )
+
                     2 -> PlaylistsTab(
-                        playlists        = playlists,
-                        onPlaylistClick  = { pl -> onNavigateToPlaylist(pl.id) },
+                        playlists = playlists,
+                        onPlaylistClick = { pl -> onNavigateToPlaylist(pl.id) },
                         onDeletePlaylist = { pl -> viewModel.deletePlaylist(pl) },
                         onRenamePlaylist = { pl, newName -> viewModel.renamePlaylist(pl.id, newName) },
                         onCreatePlaylist = { showNewPlaylistDialog = true },
-                        onMove           = { from, to -> viewModel.movePlaylistListItem(from, to) },
-                        onStartDrag      = { viewModel.startDrag() },
-                        onEndDrag        = { viewModel.endPlaylistListDrag() }
+                        onMove = { from, to -> viewModel.movePlaylistListItem(from, to) },
+                        onStartDrag = { viewModel.startDrag() },
+                        onEndDrag = { viewModel.endPlaylistListDrag() }
                     )
                 }
             }
@@ -474,28 +507,28 @@ fun LibraryScreen(
                 contentWindowInsets = { WindowInsets.ime.union(WindowInsets.navigationBars) }
             ) {
                 AddMusicSheet(
-                    isDownloading       = isDownloading,
-                    activeDownloads     = activeDownloads,
-                    isImporting         = isImporting,
-                    playlistFetch       = playlistFetch,
-                    batchDownload       = batchDownload,
-                    playlists           = playlists,
-                    autoAddPlaylistId   = autoAddPlaylistId,
+                    isDownloading = isDownloading,
+                    activeDownloads = activeDownloads,
+                    isImporting = isImporting,
+                    playlistFetch = playlistFetch,
+                    batchDownload = batchDownload,
+                    playlists = playlists,
+                    autoAddPlaylistId = autoAddPlaylistId,
                     onSetAutoAddPlaylistId = { id -> viewModel.setAutoAddPlaylistId(id) },
-                    onDownload       = { url -> viewModel.downloadSong(url); showAdd = false },
+                    onDownload = { url -> viewModel.downloadSong(url); showAdd = false },
                     onCancelDownload = { taskId -> viewModel.cancelDownload(taskId) },
-                    onPickFile       = {
+                    onPickFile = {
                         pickFile.launch(arrayOf("audio/*", "video/*"))
                         showAdd = false
                     },
-                    onPickFolder     = { pickFolder.launch(null); showAdd = false },
-                    onFetchPlaylist      = { url -> viewModel.fetchPlaylistLinks(url) },
+                    onPickFolder = { pickFolder.launch(null); showAdd = false },
+                    onFetchPlaylist = { url -> viewModel.fetchPlaylistLinks(url) },
                     onClearPlaylistFetch = { viewModel.clearPlaylistFetch() },
-                    onSaveLinks          = { viewModel.saveAndShareLinksFile() },
-                    onDownloadPlaylist   = { viewModel.downloadPlaylistSongs() },
-                    onCancelPlaylist     = { viewModel.cancelPlaylistDownload() },
-                    onExportLibrary      = { viewModel.exportLibraryLinks() },
-                    onImportLinksFile    = {
+                    onSaveLinks = { viewModel.saveAndShareLinksFile() },
+                    onDownloadPlaylist = { viewModel.downloadPlaylistSongs() },
+                    onCancelPlaylist = { viewModel.cancelPlaylistDownload() },
+                    onExportLibrary = { viewModel.exportLibraryLinks() },
+                    onImportLinksFile = {
                         // Keep the sheet open so the user can review the
                         // imported list and press "Download All".
                         pickLinksFile.launch(arrayOf("text/plain", "text/*", "*/*"))
@@ -514,7 +547,7 @@ fun LibraryScreen(
         if (showAddSelectedToPlaylist) {
             AddToPlaylistDialog(
                 playlists = playlists.map { it.playlist },
-                onSelect  = { plId ->
+                onSelect = { plId ->
                     viewModel.addSelectedToPlaylist(plId)
                     showAddSelectedToPlaylist = false
                 },
@@ -526,11 +559,11 @@ fun LibraryScreen(
             AlertDialog(
                 onDismissRequest = { showConfirmDeleteSelected = false },
                 containerColor = MaterialTheme.colorScheme.background,
-                title   = { Text("Delete selected songs?") },
-                text    = {
+                title = { Text("Delete selected songs?") },
+                text = {
                     Text(
                         "${selectedIds.size} song${if (selectedIds.size == 1) "" else "s"} will be " +
-                        "permanently removed from your library and their files deleted."
+                                "permanently removed from your library and their files deleted."
                     )
                 },
                 confirmButton = {
@@ -541,7 +574,7 @@ fun LibraryScreen(
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                            contentColor = MaterialTheme.colorScheme.onErrorContainer
                         )
                     ) { Text("Delete") }
                 },
@@ -555,12 +588,12 @@ fun LibraryScreen(
             AlertDialog(
                 onDismissRequest = { showShareMethodDialog = false },
                 containerColor = MaterialTheme.colorScheme.background,
-                title   = { Text("Share selected") },
-                text    = {
+                title = { Text("Share selected") },
+                text = {
                     Column {
                         Text(
                             "Choose how to share the ${selectedIds.size} selected " +
-                            "song${if (selectedIds.size == 1) "" else "s"}."
+                                    "song${if (selectedIds.size == 1) "" else "s"}."
                         )
                         Spacer(Modifier.height(16.dp))
                         // Files (ZIP) — bundles the media files.
@@ -570,16 +603,22 @@ fun LibraryScreen(
                                 viewModel.shareSelectedAsZip()
                             },
                             headlineContent = {
-                                Text("Files (ZIP)",
-                                    color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    "Files (ZIP)",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             },
                             supportingContent = {
-                                Text("Bundle the song files into a .zip archive",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "Bundle the song files into a .zip archive",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             },
                             leadingContent = {
-                                Icon(Icons.Default.Share, null,
-                                    tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    Icons.Default.Share, null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         )
                         HorizontalDivider()
@@ -590,16 +629,22 @@ fun LibraryScreen(
                                 viewModel.shareSelectedAsLinks()
                             },
                             headlineContent = {
-                                Text("Links",
-                                    color = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    "Links",
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             },
                             supportingContent = {
-                                Text("Share the song links as text (one per line)",
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "Share the song links as text (one per line)",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             },
                             leadingContent = {
-                                Icon(Icons.Default.Link, null,
-                                    tint = MaterialTheme.colorScheme.primary)
+                                Icon(
+                                    Icons.Default.Link, null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         )
                     }
@@ -635,6 +680,8 @@ private fun SongsTab(
     onToggleSelect: (String) -> Unit,
     onDelete: (SongEntity) -> Unit,
     onShareAsLink: (SongEntity) -> Unit,
+    onShareAsLinkOnPlatform: (SongEntity, String) -> Unit,
+    shareLinkState: MainViewModel.ShareLinkState,
     onAddToPlaylist: (songId: String, playlistId: Long) -> Unit,
     onStartDrag: () -> Unit,
     onMove: (Int, Int) -> Unit,
@@ -643,7 +690,7 @@ private fun SongsTab(
     isFiltered: Boolean = false
 ) {
     val context = LocalContext.current
-    val haptic  = LocalHapticFeedback.current
+    val haptic = LocalHapticFeedback.current
 
     if (songs.isEmpty()) {
         if (isFiltered) {
@@ -656,7 +703,7 @@ private fun SongsTab(
         return
     }
 
-    val lazyListState    = rememberLazyListState()
+    val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
         onMove(from.index, to.index)
     }
@@ -668,10 +715,10 @@ private fun SongsTab(
     // When the finger lingers near the top or bottom edge the list auto-scrolls
     // so the user can keep marking songs beyond the visible viewport; songs
     // scrolling under a stationary finger are toggled too, so none are missed.
-    val currentSongs     by rememberUpdatedState(songs)
-    val toggleSelectCb   by rememberUpdatedState(onToggleSelect)
+    val currentSongs by rememberUpdatedState(songs)
+    val toggleSelectCb by rememberUpdatedState(onToggleSelect)
     var dragSelectActive by remember { mutableStateOf(false) }
-    var lastDragIndex    by remember { mutableStateOf(-1) }
+    var lastDragIndex by remember { mutableStateOf(-1) }
     // Latest finger Y (in list-local px) while dragging; -1 when idle.
     var dragY by remember { mutableFloatStateOf(-1f) }
 
@@ -715,17 +762,17 @@ private fun SongsTab(
     }
 
     LazyColumn(
-        state    = lazyListState,
+        state = lazyListState,
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectDragGesturesAfterLongPress(
                     onDragStart = { offset ->
                         val info = itemInfoAt(offset.y) ?: return@detectDragGesturesAfterLongPress
-                        val id   = currentSongs.getOrNull(info.index)?.id ?: return@detectDragGesturesAfterLongPress
+                        val id = currentSongs.getOrNull(info.index)?.id ?: return@detectDragGesturesAfterLongPress
                         dragSelectActive = true
-                        lastDragIndex    = info.index
-                        dragY            = offset.y
+                        lastDragIndex = info.index
+                        dragY = offset.y
                         toggleSelectCb(id)
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
@@ -735,7 +782,7 @@ private fun SongsTab(
                         toggleItemAt(change.position.y)
                         change.consume()
                     },
-                    onDragEnd    = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f },
+                    onDragEnd = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f },
                     onDragCancel = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f }
                 )
             },
@@ -778,32 +825,34 @@ private fun SongsTab(
                     }
                 ) {
                     SongListItem(
-                        song               = song,
-                        isCurrent          = song.id == currentSong?.id,
-                        isPlaying          = isPlaying && song.id == currentSong?.id,
-                        isInQueue          = isInQueue,
-                        isSelected         = song.id in selectedIds,
-                        inSelection        = inSelection,
-                        isDragging         = isDragging,
+                        song = song,
+                        isCurrent = song.id == currentSong?.id,
+                        isPlaying = isPlaying && song.id == currentSong?.id,
+                        isInQueue = isInQueue,
+                        isSelected = song.id in selectedIds,
+                        inSelection = inSelection,
+                        isDragging = isDragging,
                         dragHandleModifier = Modifier.draggableHandle(
-                            enabled       = canReorder && !inSelection && !isFiltered,
+                            enabled = canReorder && !inSelection && !isFiltered,
                             onDragStarted = { onStartDrag() },
                             onDragStopped = { onEndDrag() }
                         ),
-                        playlists          = playlists,
-                        onPlay             = { onPlay(song) },
-                        onPlayNext         = { onPlayNext(song) },
-                        onAddToQueue       = { onAddToQueue(song) },
-                        onRemoveFromQueue  = { onRemoveFromQueue(song.id) },
-                        onLongPress        = {
+                        playlists = playlists,
+                        onPlay = { onPlay(song) },
+                        onPlayNext = { onPlayNext(song) },
+                        onAddToQueue = { onAddToQueue(song) },
+                        onRemoveFromQueue = { onRemoveFromQueue(song.id) },
+                        onLongPress = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             onLongPress(song.id)
                         },
-                        onToggleSelect     = { onToggleSelect(song.id) },
-                        onDelete           = { onDelete(song) },
-                        onShare            = { shareSong(context, song) },
-                        onShareAsLink      = { onShareAsLink(song) },
-                        onAddToPlaylist    = { plId -> onAddToPlaylist(song.id, plId) }
+                        onToggleSelect = { onToggleSelect(song.id) },
+                        onDelete = { onDelete(song) },
+                        onShare = { shareSong(context, song) },
+                        onShareAsLink = { onShareAsLink(song) },
+                        onShareAsLinkOnPlatform = { platform -> onShareAsLinkOnPlatform(song, platform) },
+                        shareLinkState = shareLinkState,
+                        onAddToPlaylist = { plId -> onAddToPlaylist(song.id, plId) }
                     )
                 }
             }
@@ -834,16 +883,23 @@ fun SongListItem(
     onDelete: () -> Unit,
     onShare: () -> Unit,
     onShareAsLink: () -> Unit,
+    onShareAsLinkOnPlatform: (String) -> Unit,
+    shareLinkState: MainViewModel.ShareLinkState,
     onAddToPlaylist: (Long) -> Unit
 ) {
-    var showMenu          by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
     var showAddToPlaylist by remember { mutableStateOf(false) }
     var showConfirmDelete by remember { mutableStateOf(false) }
+    var showSharePlatformDialog by remember { mutableStateOf(false) }
 
     // In selection mode the blue highlight follows the selection (not the
     // currently-playing song); outside selection it marks the current song.
-    val bgAlpha   by animateFloatAsState(
-        if (inSelection) { if (isSelected) 0.18f else 0f } else { if (isCurrent) 0.18f else 0f },
+    val bgAlpha by animateFloatAsState(
+        if (inSelection) {
+            if (isSelected) 0.18f else 0f
+        } else {
+            if (isCurrent) 0.18f else 0f
+        },
         label = "songBg"
     )
     val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "dragElev")
@@ -862,16 +918,21 @@ fun SongListItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     song.title,
-                    maxLines   = 1,
-                    overflow   = TextOverflow.Ellipsis,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     fontWeight = if (!inSelection && isCurrent) FontWeight.Bold else FontWeight.Normal,
-                    color      = if (!inSelection && isCurrent) MaterialTheme.colorScheme.primary
+                    color = if (!inSelection && isCurrent) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f, fill = false)
                 )
                 if (isInQueue && !isCurrent && isDragging) {
                     Spacer(Modifier.width(8.dp))
-                    Icon(Icons.Default.Queue, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                    Icon(
+                        Icons.Default.Queue,
+                        null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
                 }
             }
         },
@@ -880,8 +941,8 @@ fun SongListItem(
                 song.artist,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style    = MaterialTheme.typography.bodySmall,
-                color    = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         },
         leadingContent = {
@@ -897,10 +958,10 @@ fun SongListItem(
                 ) {
                     if (song.thumbnailUrl != null) {
                         AsyncImage(
-                            model              = song.thumbnailUrl,
+                            model = song.thumbnailUrl,
                             contentDescription = null,
-                            modifier           = Modifier.fillMaxSize(),
-                            contentScale       = ContentScale.Crop
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
                         )
                     } else {
                         Icon(
@@ -918,7 +979,7 @@ fun SongListItem(
                             Icon(
                                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 null,
-                                tint     = MaterialTheme.colorScheme.onPrimary,
+                                tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -929,7 +990,7 @@ fun SongListItem(
         trailingContent = {
             if (!inSelection) {
                 Row(
-                    verticalAlignment     = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     Box {
@@ -940,55 +1001,57 @@ fun SongListItem(
                             )
                         }
                         DropdownMenu(
-                            expanded         = showMenu,
+                            expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
                             DropdownMenuItem(
-                                text        = { Text("Select Multiple") },
+                                text = { Text("Select Multiple") },
                                 leadingIcon = { Icon(Icons.Default.Checklist, null) },
-                                onClick     = { showMenu = false; onLongPress() }
+                                onClick = { showMenu = false; onLongPress() }
                             )
                             DropdownMenuItem(
-                                text        = { Text("Play Next") },
+                                text = { Text("Play Next") },
                                 leadingIcon = { Icon(Icons.Default.SkipNext, null) },
-                                onClick     = { showMenu = false; onPlayNext() }
+                                onClick = { showMenu = false; onPlayNext() }
                             )
                             if (isInQueue) {
                                 DropdownMenuItem(
-                                    text        = { Text("Remove from Queue") },
+                                    text = { Text("Remove from Queue") },
                                     leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null) },
-                                    onClick     = { showMenu = false; onRemoveFromQueue() }
+                                    onClick = { showMenu = false; onRemoveFromQueue() }
                                 )
                             } else {
                                 DropdownMenuItem(
-                                    text        = { Text("Add to Queue") },
+                                    text = { Text("Add to Queue") },
                                     leadingIcon = { Icon(Icons.Default.Queue, null) },
-                                    onClick     = { showMenu = false; onAddToQueue() }
+                                    onClick = { showMenu = false; onAddToQueue() }
                                 )
                             }
                             DropdownMenuItem(
-                                text        = { Text("Add to Playlist") },
+                                text = { Text("Add to Playlist") },
                                 leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
-                                onClick     = { showMenu = false; showAddToPlaylist = true }
+                                onClick = { showMenu = false; showAddToPlaylist = true }
                             )
                             DropdownMenuItem(
-                                text        = { Text("Share file") },
+                                text = { Text("Share file") },
                                 leadingIcon = { Icon(Icons.Default.Share, null) },
-                                onClick     = { showMenu = false; onShare() }
+                                onClick = { showMenu = false; onShare() }
                             )
                             if (song.sourceUrl.startsWith("http")) {
                                 DropdownMenuItem(
-                                    text        = { Text("Share link") },
+                                    text = { Text("Share link") },
                                     leadingIcon = { Icon(Icons.Default.Link, null) },
-                                    onClick     = { showMenu = false; onShareAsLink() }
+                                    onClick = { showMenu = false; showSharePlatformDialog = true }
                                 )
                             }
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text        = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Delete, null,
-                                        tint = MaterialTheme.colorScheme.error)
+                                    Icon(
+                                        Icons.Default.Delete, null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
                                 },
                                 onClick = { showMenu = false; showConfirmDelete = true }
                             )
@@ -997,8 +1060,8 @@ fun SongListItem(
                     Icon(
                         Icons.Default.DragHandle,
                         contentDescription = "Drag to reorder",
-                        modifier           = dragHandleModifier.size(20.dp),
-                        tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                        modifier = dragHandleModifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                     )
                     Spacer(Modifier.width(4.dp))
                 }
@@ -1014,7 +1077,7 @@ fun SongListItem(
     if (showAddToPlaylist) {
         AddToPlaylistDialog(
             playlists = playlists,
-            onSelect  = { plId -> onAddToPlaylist(plId); showAddToPlaylist = false },
+            onSelect = { plId -> onAddToPlaylist(plId); showAddToPlaylist = false },
             onDismiss = { showAddToPlaylist = false }
         )
     }
@@ -1023,8 +1086,8 @@ fun SongListItem(
         AlertDialog(
             onDismissRequest = { showConfirmDelete = false },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Delete song?") },
-            text    = {
+            title = { Text("Delete song?") },
+            text = {
                 Text("\"${song.title}\" will be permanently removed from your library and its file deleted.")
             },
             confirmButton = {
@@ -1032,13 +1095,29 @@ fun SongListItem(
                     onClick = { onDelete(); showConfirmDelete = false },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) { Text("Delete") }
             },
             dismissButton = {
                 OutlinedButton(onClick = { showConfirmDelete = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    if (showSharePlatformDialog) {
+        ShareLinkPlatformDialog(
+            songTitle = song.title,
+            state = shareLinkState,
+            onPickPlatform = { key ->
+                showSharePlatformDialog = false
+                onShareAsLinkOnPlatform(key)
+            },
+            onPickOriginal = {
+                showSharePlatformDialog = false
+                onShareAsLink()
+            },
+            onDismiss = { showSharePlatformDialog = false }
         )
     }
 }
@@ -1063,8 +1142,10 @@ private fun PlaylistsTab(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.QueueMusic, null, Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+                Icon(
+                    Icons.Default.QueueMusic, null, Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                )
                 Text("No playlists yet", style = MaterialTheme.typography.titleMedium)
                 FilledTonalButton(onClick = onCreatePlaylist) {
                     Icon(Icons.Default.Add, null, Modifier.size(18.dp))
@@ -1087,7 +1168,7 @@ private fun PlaylistsTab(
         // occupy index 0 and skew the reorder indices (which would otherwise
         // be off by one and corrupt the drag order).
         TextButton(
-            onClick  = onCreatePlaylist,
+            onClick = onCreatePlaylist,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
         ) {
             Icon(Icons.Default.Add, null)
@@ -1108,7 +1189,7 @@ private fun PlaylistsTab(
                             onDragStarted = { onStartDrag() },
                             onDragStopped = { onEndDrag() }
                         ),
-                        onClick  = { onPlaylistClick(pw.playlist) },
+                        onClick = { onPlaylistClick(pw.playlist) },
                         onDelete = { onDeletePlaylist(pw.playlist) },
                         onRename = { newName -> onRenamePlaylist(pw.playlist, newName) }
                     )
@@ -1129,7 +1210,7 @@ private fun PlaylistItem(
     onRename: (String) -> Unit
 ) {
     var showConfirm by remember { mutableStateOf(false) }
-    var showRename  by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
     val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "playlistDragElev")
     ListItem(
         modifier = Modifier
@@ -1153,8 +1234,10 @@ private fun PlaylistItem(
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.QueueMusic, null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(
+                    Icons.Default.QueueMusic, null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         },
         trailingContent = {
@@ -1166,8 +1249,10 @@ private fun PlaylistItem(
                     )
                 }
                 IconButton(onClick = { showConfirm = true }) {
-                    Icon(Icons.Default.Delete, "Delete playlist",
-                        tint = MaterialTheme.colorScheme.error)
+                    Icon(
+                        Icons.Default.Delete, "Delete playlist",
+                        tint = MaterialTheme.colorScheme.error
+                    )
                 }
                 Icon(
                     Icons.Default.DragHandle,
@@ -1181,16 +1266,16 @@ private fun PlaylistItem(
     if (showRename) {
         RenamePlaylistDialog(
             currentName = playlistWithSongs.playlist.name,
-            onConfirm   = { newName -> onRename(newName); showRename = false },
-            onDismiss   = { showRename = false }
+            onConfirm = { newName -> onRename(newName); showRename = false },
+            onDismiss = { showRename = false }
         )
     }
     if (showConfirm) {
         AlertDialog(
             onDismissRequest = { showConfirm = false },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Delete playlist?") },
-            text    = {
+            title = { Text("Delete playlist?") },
+            text = {
                 Text("\"${playlistWithSongs.playlist.name}\" will be removed. Songs stay in library.")
             },
             confirmButton = {
@@ -1198,7 +1283,7 @@ private fun PlaylistItem(
                     onClick = { onDelete(); showConfirm = false },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) { Text("Delete") }
             },
@@ -1268,7 +1353,10 @@ private fun QueueTab(
                     state = dismissState,
                     enableDismissFromStartToEnd = false,
                     backgroundContent = {
-                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd) {
+                        Box(
+                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer)
+                                .padding(horizontal = 20.dp), contentAlignment = Alignment.CenterEnd
+                        ) {
                             Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error)
                         }
                     }
@@ -1280,15 +1368,26 @@ private fun QueueTab(
                             .background(if (isDragging) MaterialTheme.colorScheme.surface else Color.Transparent)
                             .clickable { onPlayItem(item) },
                         headlineContent = {
-                            Text(item.mediaMetadata.title?.toString() ?: "Unknown",
+                            Text(
+                                item.mediaMetadata.title?.toString() ?: "Unknown",
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
                         },
                         supportingContent = { Text(item.mediaMetadata.artist?.toString() ?: "Unknown") },
                         leadingContent = {
-                            Box(Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                            Box(
+                                Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
                                 if (item.mediaMetadata.artworkUri != null) {
-                                    AsyncImage(model = item.mediaMetadata.artworkUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                    AsyncImage(
+                                        model = item.mediaMetadata.artworkUri,
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
                                 } else {
                                     Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(20.dp))
                                 }
@@ -1297,7 +1396,11 @@ private fun QueueTab(
                         trailingContent = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 IconButton(onClick = { onRemove(item) }) {
-                                    Icon(Icons.Default.RemoveCircleOutline, "Remove", tint = MaterialTheme.colorScheme.error)
+                                    Icon(
+                                        Icons.Default.RemoveCircleOutline,
+                                        "Remove",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
                                 }
                                 Icon(
                                     Icons.Default.DragHandle,
@@ -1309,7 +1412,10 @@ private fun QueueTab(
                         }
                     )
                 }
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f))
+                HorizontalDivider(
+                    Modifier.padding(horizontal = 16.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                )
             }
         }
     }
@@ -1323,20 +1429,20 @@ fun NewPlaylistDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.background,
-        title   = { Text("New Playlist") },
-        text    = {
+        title = { Text("New Playlist") },
+        text = {
             OutlinedTextField(
-                value         = name,
+                value = name,
                 onValueChange = { name = it },
-                label         = { Text("Playlist name") },
-                singleLine    = true,
-                shape         = RoundedCornerShape(12.dp)
+                label = { Text("Playlist name") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
             )
         },
         confirmButton = {
             Button(
-                onClick  = { if (name.isNotBlank()) onConfirm(name.trim()) },
-                enabled  = name.isNotBlank()
+                onClick = { if (name.isNotBlank()) onConfirm(name.trim()) },
+                enabled = name.isNotBlank()
             ) { Text("Create") }
         },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Cancel") } }
@@ -1353,14 +1459,14 @@ fun RenamePlaylistDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.background,
-        title   = { Text("Rename Playlist") },
-        text    = {
+        title = { Text("Rename Playlist") },
+        text = {
             OutlinedTextField(
-                value         = name,
+                value = name,
                 onValueChange = { name = it },
-                label         = { Text("Playlist name") },
-                singleLine    = true,
-                shape         = RoundedCornerShape(12.dp)
+                label = { Text("Playlist name") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
             )
         },
         confirmButton = {
@@ -1382,16 +1488,16 @@ fun AddToPlaylistDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.background,
-        title   = { Text("Add to Playlist") },
-        text    = {
+        title = { Text("Add to Playlist") },
+        text = {
             if (playlists.isEmpty()) {
                 Text("No playlists yet. Create one in the Playlists tab first.")
             } else {
                 LazyColumn {
                     itemsIndexed(playlists) { index, pl ->
                         AddToPlaylistRow(
-                            name       = pl.name,
-                            onClick    = { onSelect(pl.id) }
+                            name = pl.name,
+                            onClick = { onSelect(pl.id) }
                         )
                         if (index < playlists.lastIndex) {
                             HorizontalDivider()
@@ -1420,7 +1526,7 @@ private fun AddToPlaylistRow(name: String, onClick: () -> Unit) {
     val scope = rememberCoroutineScope()
     val fill by animateColorAsState(
         targetValue = if (isPressed) MaterialTheme.colorScheme.primaryContainer
-                      else Color.Transparent,
+        else Color.Transparent,
         label = "addToPlaylistFill"
     )
     ListItem(
@@ -1440,13 +1546,17 @@ private fun AddToPlaylistRow(name: String, onClick: () -> Unit) {
                 }
             },
         headlineContent = {
-            Text(name,
+            Text(
+                name,
                 color = if (isPressed) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurface)
+                else MaterialTheme.colorScheme.onSurface
+            )
         },
         leadingContent = {
-            Icon(Icons.Default.QueueMusic, null,
-                tint = MaterialTheme.colorScheme.primary)
+            Icon(
+                Icons.Default.QueueMusic, null,
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     )
 }
@@ -1476,9 +1586,9 @@ fun MiniPlayer(
         // verticalDrag uses the Initial pointer pass so it can intercept an
         // upward drag without blocking taps on the play/pause/skip buttons.
         Modifier.verticalDrag(
-            touchSlop    = touchSlop,
-            onDrag       = onDragUp,
-            onDragEnd    = onDragEnd,
+            touchSlop = touchSlop,
+            onDrag = onDragUp,
+            onDragEnd = onDragEnd,
             onDragCancel = onDragCancel
         ).combinedClickable(onClick = onTap, onLongClick = {})
     } else {
@@ -1486,13 +1596,13 @@ fun MiniPlayer(
     }
 
     Card(
-        modifier  = Modifier
+        modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .then(dragModifier),
-        shape     = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(8.dp),
-        colors    = CardDefaults.cardColors(
+        colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
@@ -1510,9 +1620,9 @@ fun MiniPlayer(
                                 val size = coords.size
                                 onThumbnailPositioned(
                                     androidx.compose.ui.unit.IntRect(
-                                        left   = pos.x.toInt(),
-                                        top    = pos.y.toInt(),
-                                        right  = (pos.x + size.width).toInt(),
+                                        left = pos.x.toInt(),
+                                        top = pos.y.toInt(),
+                                        right = (pos.x + size.width).toInt(),
                                         bottom = (pos.y + size.height).toInt()
                                     )
                                 )
@@ -1526,10 +1636,10 @@ fun MiniPlayer(
                 if (!hideThumbnail) {
                     if (song.thumbnailUrl != null) {
                         AsyncImage(
-                            model              = song.thumbnailUrl,
+                            model = song.thumbnailUrl,
                             contentDescription = null,
-                            modifier           = Modifier.fillMaxSize(),
-                            contentScale       = ContentScale.Crop
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
                         )
                     } else {
                         Icon(Icons.Default.MusicNote, null)
@@ -1539,15 +1649,15 @@ fun MiniPlayer(
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(
                     song.title,
-                    style      = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines   = 1,
-                    overflow   = TextOverflow.Ellipsis
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     song.artist,
-                    style    = MaterialTheme.typography.bodySmall,
-                    color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1590,11 +1700,13 @@ fun EmptyLibrary(onAdd: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(Icons.Default.LibraryMusic, null, Modifier.size(72.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+            Icon(
+                Icons.Default.LibraryMusic, null, Modifier.size(72.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+            )
             Text(
                 "Library is empty",
-                style      = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
@@ -1731,7 +1843,7 @@ fun AddMusicSheet(
     onExportLibrary: () -> Unit,
     onImportLinksFile: () -> Unit
 ) {
-    var tab     by remember { mutableIntStateOf(0) }
+    var tab by remember { mutableIntStateOf(0) }
     var urlText by remember { mutableStateOf("") }
     var playlistUrlText by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
@@ -1751,7 +1863,7 @@ fun AddMusicSheet(
     ) {
         Text(
             "Add Music",
-            style      = MaterialTheme.typography.headlineSmall,
+            style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.padding(top = 16.dp)
         )
@@ -1762,10 +1874,10 @@ fun AddMusicSheet(
         // import) is automatically added to the chosen playlist. "Off" disables
         // it. The choice persists across downloads and app restarts.
         AutoAddPlaylistSelector(
-            playlists           = playlists,
-            autoAddPlaylistId   = autoAddPlaylistId,
+            playlists = playlists,
+            autoAddPlaylistId = autoAddPlaylistId,
             selectedPlaylistName = selectedPlaylistName,
-            onSelect            = onSetAutoAddPlaylistId
+            onSelect = onSetAutoAddPlaylistId
         )
 
         Spacer(Modifier.height(12.dp))
@@ -1791,7 +1903,7 @@ fun AddMusicSheet(
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         OutlinedTextField(
-                            value         = urlText,
+                            value = urlText,
                             onValueChange = { newValue ->
                                 // Auto-insert a comma between directly
                                 // concatenated links (e.g. pasting one link
@@ -1803,24 +1915,24 @@ fun AddMusicSheet(
                                     Regex("(?<=[^\\s,])(?=https?://)"), ", "
                                 )
                             },
-                            modifier      = Modifier.fillMaxWidth(),
-                            placeholder   = { Text("Paste links (multiple links are supported)") },
-                            minLines      = 3,
-                            maxLines      = 10,
-                            shape         = RoundedCornerShape(12.dp),
-                            leadingIcon   = { Icon(Icons.Default.Link, null) }
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Paste links (multiple links are supported)") },
+                            minLines = 3,
+                            maxLines = 10,
+                            shape = RoundedCornerShape(12.dp),
+                            leadingIcon = { Icon(Icons.Default.Link, null) }
                         )
                         Button(
-                            onClick  = { onDownload(urlText); urlText = "" },
-                            enabled  = urlText.isNotBlank(),
+                            onClick = { onDownload(urlText); urlText = "" },
+                            enabled = urlText.isNotBlank(),
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            shape    = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Download, null)
                             Spacer(Modifier.width(8.dp))
                             Text(if (activeDownloads.isNotEmpty()) "Add More to Download" else "Download")
                         }
-                        
+
                         if (activeDownloads.isNotEmpty()) {
                             Text(
                                 "Active Downloads (${activeDownloads.size})",
@@ -1861,20 +1973,20 @@ fun AddMusicSheet(
                     }
 
                     1 -> PlaylistImportTab(
-                        playlistUrlText      = playlistUrlText,
-                        onPlaylistUrlChange  = { playlistUrlText = it },
-                        playlistFetch        = playlistFetch,
-                        batchDownload        = batchDownload,
-                        onFetchPlaylist      = { onFetchPlaylist(playlistUrlText) },
+                        playlistUrlText = playlistUrlText,
+                        onPlaylistUrlChange = { playlistUrlText = it },
+                        playlistFetch = playlistFetch,
+                        batchDownload = batchDownload,
+                        onFetchPlaylist = { onFetchPlaylist(playlistUrlText) },
                         onClearPlaylistFetch = {
                             onClearPlaylistFetch()
                             playlistUrlText = ""
                         },
-                        onSaveLinks          = onSaveLinks,
-                        onDownloadPlaylist   = onDownloadPlaylist,
-                        onCancelPlaylist     = onCancelPlaylist,
-                        onExportLibrary      = onExportLibrary,
-                        onImportLinksFile    = onImportLinksFile
+                        onSaveLinks = onSaveLinks,
+                        onDownloadPlaylist = onDownloadPlaylist,
+                        onCancelPlaylist = onCancelPlaylist,
+                        onExportLibrary = onExportLibrary,
+                        onImportLinksFile = onImportLinksFile
                     )
 
                     2 -> Column(
@@ -1882,26 +1994,30 @@ fun AddMusicSheet(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(Icons.Default.AudioFile, null, Modifier.size(52.dp),
-                            tint = MaterialTheme.colorScheme.primary)
-                        Text("Pick audio or video files from your device",
-                            textAlign = TextAlign.Center)
+                        Icon(
+                            Icons.Default.AudioFile, null, Modifier.size(52.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "Pick audio or video files from your device",
+                            textAlign = TextAlign.Center
+                        )
                         Text(
                             "Supports MP3, FLAC, M4A, OGG, WAV, MP4 and more",
-                            style     = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall,
                             textAlign = TextAlign.Center,
-                            color     = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Button(
-                            onClick  = onPickFile,
-                            enabled  = !isImporting,
+                            onClick = onPickFile,
+                            enabled = !isImporting,
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            shape    = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             if (isImporting) {
                                 CircularProgressIndicator(
                                     Modifier.size(18.dp),
-                                    color       = MaterialTheme.colorScheme.onPrimary,
+                                    color = MaterialTheme.colorScheme.onPrimary,
                                     strokeWidth = 2.dp
                                 )
                                 Spacer(Modifier.width(8.dp)); Text("Importing...")
@@ -1917,25 +2033,27 @@ fun AddMusicSheet(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Icon(Icons.Default.Folder, null, Modifier.size(52.dp),
-                            tint = MaterialTheme.colorScheme.primary)
+                        Icon(
+                            Icons.Default.Folder, null, Modifier.size(52.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                         Text("Import all audio from a folder", textAlign = TextAlign.Center)
                         Text(
                             "Every audio file in the folder gets added to your library",
-                            style     = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.bodySmall,
                             textAlign = TextAlign.Center,
-                            color     = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Button(
-                            onClick  = onPickFolder,
-                            enabled  = !isImporting,
+                            onClick = onPickFolder,
+                            enabled = !isImporting,
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            shape    = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             if (isImporting) {
                                 CircularProgressIndicator(
                                     Modifier.size(18.dp),
-                                    color       = MaterialTheme.colorScheme.onPrimary,
+                                    color = MaterialTheme.colorScheme.onPrimary,
                                     strokeWidth = 2.dp
                                 )
                                 Spacer(Modifier.width(8.dp)); Text("Scanning folder...")
@@ -1977,14 +2095,14 @@ private fun PlaylistImportTab(
     ) {
         // ── Transfer library between phones ────────────────────────────────
         Surface(
-            color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape    = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     "Transfer library",
-                    style      = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
@@ -1997,19 +2115,19 @@ private fun PlaylistImportTab(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     OutlinedButton(
-                        onClick  = onExportLibrary,
-                        enabled  = !batchRunning,
+                        onClick = onExportLibrary,
+                        enabled = !batchRunning,
                         modifier = Modifier.weight(1f).height(48.dp),
-                        shape    = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.UploadFile, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp)); Text("Export")
                     }
                     Button(
-                        onClick  = onImportLinksFile,
-                        enabled  = !batchRunning,
+                        onClick = onImportLinksFile,
+                        enabled = !batchRunning,
                         modifier = Modifier.weight(1f).height(48.dp),
-                        shape    = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.FileOpen, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp)); Text("Import")
@@ -2021,18 +2139,18 @@ private fun PlaylistImportTab(
         HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp))
         Text(
             "From a YouTube playlist",
-            style      = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold
         )
         OutlinedTextField(
-            value         = playlistUrlText,
+            value = playlistUrlText,
             onValueChange = onPlaylistUrlChange,
-            modifier      = Modifier.fillMaxWidth(),
-            placeholder   = { Text("Paste YouTube playlist URL") },
-            singleLine    = true,
-            shape         = RoundedCornerShape(12.dp),
-            leadingIcon   = { Icon(Icons.Default.PlaylistPlay, null) },
-            trailingIcon  = {
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text("Paste YouTube playlist URL") },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            leadingIcon = { Icon(Icons.Default.PlaylistPlay, null) },
+            trailingIcon = {
                 if (playlistUrlText.isNotEmpty()) {
                     IconButton(onClick = onClearPlaylistFetch) {
                         Icon(Icons.Default.Clear, "Clear")
@@ -2042,15 +2160,15 @@ private fun PlaylistImportTab(
         )
 
         Button(
-            onClick  = onFetchPlaylist,
-            enabled  = playlistUrlText.isNotBlank() && !playlistFetch.isLoading && !batchRunning,
+            onClick = onFetchPlaylist,
+            enabled = playlistUrlText.isNotBlank() && !playlistFetch.isLoading && !batchRunning,
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape    = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp)
         ) {
             if (playlistFetch.isLoading) {
                 CircularProgressIndicator(
                     Modifier.size(18.dp),
-                    color       = MaterialTheme.colorScheme.onPrimary,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     strokeWidth = 2.dp
                 )
                 Spacer(Modifier.width(8.dp)); Text("Fetching playlist...")
@@ -2063,8 +2181,8 @@ private fun PlaylistImportTab(
         playlistFetch.error?.let { err ->
             Text(
                 err,
-                color  = MaterialTheme.colorScheme.error,
-                style  = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -2073,9 +2191,9 @@ private fun PlaylistImportTab(
         if (hasEntries) {
             Text(
                 "${entries.size} songs found",
-                style      = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
-                modifier   = Modifier.padding(top = 4.dp)
+                modifier = Modifier.padding(top = 4.dp)
             )
             // Preview the first few entries
             entries.take(10).forEach { entry ->
@@ -2113,19 +2231,19 @@ private fun PlaylistImportTab(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 OutlinedButton(
-                    onClick  = onSaveLinks,
-                    enabled  = !batchRunning,
+                    onClick = onSaveLinks,
+                    enabled = !batchRunning,
                     modifier = Modifier.weight(1f).height(52.dp),
-                    shape    = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.FileDownload, null)
                     Spacer(Modifier.width(8.dp)); Text("Save Links")
                 }
                 Button(
-                    onClick  = onDownloadPlaylist,
-                    enabled  = !batchRunning,
+                    onClick = onDownloadPlaylist,
+                    enabled = !batchRunning,
                     modifier = Modifier.weight(1f).height(52.dp),
-                    shape    = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(Icons.Default.Download, null)
                     Spacer(Modifier.width(8.dp)); Text("Download All")
@@ -2135,8 +2253,8 @@ private fun PlaylistImportTab(
             // Batch progress + cancel
             if (batchRunning) {
                 Surface(
-                    color    = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                    shape    = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2144,14 +2262,14 @@ private fun PlaylistImportTab(
                             Text(
                                 if (batchDownload.isCancelling) "Cancelling..."
                                 else "${batchDownload.completed}/${batchDownload.total}",
-                                style      = MaterialTheme.typography.labelMedium,
+                                style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                modifier   = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f)
                             )
                             if (!batchDownload.isCancelling) {
                                 TextButton(
                                     onClick = onCancelPlaylist,
-                                    colors  = ButtonDefaults.textButtonColors(
+                                    colors = ButtonDefaults.textButtonColors(
                                         contentColor = MaterialTheme.colorScheme.error
                                     )
                                 ) {
@@ -2163,7 +2281,7 @@ private fun PlaylistImportTab(
                         batchDownload.currentTitle?.let { title ->
                             Text(
                                 title,
-                                style    = MaterialTheme.typography.labelSmall,
+                                style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

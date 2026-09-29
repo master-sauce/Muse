@@ -69,19 +69,19 @@ fun PlayerContent(
     hideArtwork: Boolean = false
 ) {
     val currentSong by viewModel.currentSong.collectAsState()
-    val isPlaying   by viewModel.isPlaying.collectAsState()
-    val progress    by viewModel.playbackProgress.collectAsState()
-    val position    by viewModel.currentPosition.collectAsState()
-    val duration    by viewModel.duration.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState()
+    val progress by viewModel.playbackProgress.collectAsState()
+    val position by viewModel.currentPosition.collectAsState()
+    val duration by viewModel.duration.collectAsState()
     // Use the user's shuffle *intent* (not the live player flag) so the button
     // stays highlighted even while a manual queue holds actual shuffle off —
     // the pending restore will re-apply shuffle once the queue drains.
-    val isShuffled  by viewModel.shuffleIntent.collectAsState()
-    val repeatMode  by viewModel.repeatMode.collectAsState()
+    val isShuffled by viewModel.shuffleIntent.collectAsState()
+    val repeatMode by viewModel.repeatMode.collectAsState()
     val lyricsState by viewModel.lyrics.collectAsState()
-    val exoPlayer   by viewModel.exoPlayer.collectAsState()
-    val playlists   by viewModel.playlists.collectAsState()
-    val upNext      by viewModel.upNext.collectAsState()
+    val exoPlayer by viewModel.exoPlayer.collectAsState()
+    val playlists by viewModel.playlists.collectAsState()
+    val upNext by viewModel.upNext.collectAsState()
     val timelineSize by viewModel.timelineSize.collectAsState()
     val reshuffleGeneration by viewModel.reshuffleGeneration.collectAsState()
     // The playlist the current playback list came from (null when playing from
@@ -102,7 +102,7 @@ fun PlayerContent(
     var fullScreen by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
-    val haptic  = LocalHapticFeedback.current
+    val haptic = LocalHapticFeedback.current
     val activity = context as? androidx.activity.ComponentActivity
 
     // Lock orientation and hide system chrome in fullscreen
@@ -135,9 +135,9 @@ fun PlayerContent(
     // Back handler: exit fullscreen → hide queue panel → navigate back.
     BackHandler {
         when {
-            fullScreen     -> fullScreen = false
+            fullScreen -> fullScreen = false
             showQueuePanel -> showQueuePanel = false
-            else           -> onNavigateBack()
+            else -> onNavigateBack()
         }
     }
     // Separate handler so the panel closes even while fullscreen isn't active
@@ -149,9 +149,9 @@ fun PlayerContent(
     // a 0.82-scaled image caused a visible "shrink" pop). Keep it at 1f.
     val albumScale = 1f
     val albumShadow by animateDpAsState(
-        targetValue   = if (isPlaying) 32.dp else 6.dp,
+        targetValue = if (isPlaying) 32.dp else 6.dp,
         animationSpec = tween(500),
-        label         = "albumShadow"
+        label = "albumShadow"
     )
 
     if (fullScreen && videoMode && isVideoFile) {
@@ -162,7 +162,7 @@ fun PlayerContent(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             VideoPlayerView(
-                player   = exoPlayer,
+                player = exoPlayer,
                 modifier = Modifier.fillMaxSize(),
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             )
@@ -186,8 +186,8 @@ fun PlayerContent(
 
             AnimatedVisibility(
                 visible = showOverlay,
-                enter   = fadeIn(tween(200)),
-                exit    = fadeOut(tween(300))
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(300))
             ) {
                 // Top gradient + back button
                 Box(
@@ -219,13 +219,15 @@ fun PlayerContent(
         // ── Normal portrait mode ─────────────────────────────────────────────
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color    = MaterialTheme.colorScheme.background
+            color = MaterialTheme.colorScheme.background
         ) {
             // Overflow (three-dots) menu + "Add to Playlist" dialog state.
             // Declared here (Surface scope) so the dialog, rendered as a
             // sibling of the root Box below, can read/write them too.
             var showOverflowMenu by remember { mutableStateOf(false) }
             var showAddToPlaylist by remember { mutableStateOf(false) }
+            var showSharePlatformDialog by remember { mutableStateOf(false) }
+            val shareLinkState by viewModel.shareLinkState.collectAsState()
             // Confirm dialogs for the delete actions added to the overflow menu.
             var showConfirmDelete by remember { mutableStateOf(false) }
             var showConfirmRemoveFromPlaylist by remember { mutableStateOf(false) }
@@ -259,11 +261,13 @@ fun PlayerContent(
                     .fillMaxSize()
                     .then(rootDragModifier)
                     .background(
-                        Brush.verticalGradient(listOf(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
-                            MaterialTheme.colorScheme.background,
-                            MaterialTheme.colorScheme.background
-                        ))
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                                MaterialTheme.colorScheme.background,
+                                MaterialTheme.colorScheme.background
+                            )
+                        )
                     )
             ) {
                 Column(
@@ -276,7 +280,7 @@ fun PlayerContent(
                             .fillMaxWidth()
                             .padding(top = 8.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment     = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Reserve the same 48dp width whether or not the chevron is
                         // visible so the "Now Playing" label stays centered during
@@ -288,16 +292,21 @@ fun PlayerContent(
                                 }
                             }
                         }
-                        Text("Now Playing", style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Now Playing", style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = onNavigateToLyrics) {
-                                Icon(Icons.Default.Lyrics, "Lyrics",
+                                Icon(
+                                    Icons.Default.Lyrics, "Lyrics",
                                     tint = when (lyricsState) {
                                         is LyricsState.Synced, is LyricsState.Plain ->
                                             MaterialTheme.colorScheme.primary
+
                                         else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                    })
+                                    }
+                                )
                             }
                             // Three-dots overflow: Share file / Share link /
                             // Add to Playlist for the currently-playing song.
@@ -313,34 +322,34 @@ fun PlayerContent(
                                     )
                                 }
                                 DropdownMenu(
-                                    expanded         = showOverflowMenu,
+                                    expanded = showOverflowMenu,
                                     onDismissRequest = { showOverflowMenu = false }
                                 ) {
                                     val song = currentSong
                                     DropdownMenuItem(
-                                        text        = { Text("Add to Playlist") },
+                                        text = { Text("Add to Playlist") },
                                         leadingIcon = { Icon(Icons.Default.PlaylistAdd, null) },
-                                        enabled     = playlists.isNotEmpty(),
-                                        onClick     = {
+                                        enabled = playlists.isNotEmpty(),
+                                        onClick = {
                                             showOverflowMenu = false
                                             showAddToPlaylist = true
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text        = { Text("Share file") },
+                                        text = { Text("Share file") },
                                         leadingIcon = { Icon(Icons.Default.Share, null) },
-                                        onClick     = {
+                                        onClick = {
                                             showOverflowMenu = false
                                             if (song != null) shareSong(context, song)
                                         }
                                     )
                                     if (song != null && song.sourceUrl.startsWith("http")) {
                                         DropdownMenuItem(
-                                            text        = { Text("Share link") },
+                                            text = { Text("Share link") },
                                             leadingIcon = { Icon(Icons.Default.Link, null) },
-                                            onClick     = {
+                                            onClick = {
                                                 showOverflowMenu = false
-                                                viewModel.shareSongAsLink(song)
+                                                showSharePlatformDialog = true
                                             }
                                         )
                                     }
@@ -362,7 +371,7 @@ fun PlayerContent(
                                             ?.any { it.id == song.id } == true
                                         if (songStillInPlaylist) {
                                             DropdownMenuItem(
-                                                text        = {
+                                                text = {
                                                     Text(
                                                         "Remove from \"${playingPlaylist?.name}\"",
                                                         color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
@@ -381,13 +390,17 @@ fun PlayerContent(
                                             )
                                         }
                                         DropdownMenuItem(
-                                            text        = {
-                                                Text("Delete from library",
-                                                    color = MaterialTheme.colorScheme.error)
+                                            text = {
+                                                Text(
+                                                    "Delete from library",
+                                                    color = MaterialTheme.colorScheme.error
+                                                )
                                             },
                                             leadingIcon = {
-                                                Icon(Icons.Default.Delete, null,
-                                                    tint = MaterialTheme.colorScheme.error)
+                                                Icon(
+                                                    Icons.Default.Delete, null,
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
                                             },
                                             onClick = {
                                                 showOverflowMenu = false
@@ -407,16 +420,16 @@ fun PlayerContent(
                             horizontalArrangement = Arrangement.Center
                         ) {
                             FilterChip(
-                                selected    = !videoMode,
-                                onClick     = { videoMode = false },
-                                label       = { Text("Song") },
+                                selected = !videoMode,
+                                onClick = { videoMode = false },
+                                label = { Text("Song") },
                                 leadingIcon = { Icon(Icons.Default.MusicNote, null, Modifier.size(16.dp)) },
-                                modifier    = Modifier.padding(end = 10.dp)
+                                modifier = Modifier.padding(end = 10.dp)
                             )
                             FilterChip(
-                                selected    = videoMode,
-                                onClick     = { videoMode = true },
-                                label       = { Text("Video") },
+                                selected = videoMode,
+                                onClick = { videoMode = true },
+                                label = { Text("Video") },
                                 leadingIcon = { Icon(Icons.Default.Videocam, null, Modifier.size(16.dp)) }
                             )
                         }
@@ -442,8 +455,8 @@ fun PlayerContent(
                                     .shadow(16.dp, RoundedCornerShape(20.dp))
                             ) {
                                 VideoPlayerView(
-                                    player     = exoPlayer,
-                                    modifier   = Modifier.fillMaxSize(),
+                                    player = exoPlayer,
+                                    modifier = Modifier.fillMaxSize(),
                                     resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                                 )
 
@@ -500,9 +513,9 @@ fun PlayerContent(
                                                 val size = coords.size
                                                 onArtworkPositioned(
                                                     androidx.compose.ui.unit.IntRect(
-                                                        left   = pos.x.toInt(),
-                                                        top    = pos.y.toInt(),
-                                                        right  = (pos.x + size.width).toInt(),
+                                                        left = pos.x.toInt(),
+                                                        top = pos.y.toInt(),
+                                                        right = (pos.x + size.width).toInt(),
                                                         bottom = (pos.y + size.height).toInt()
                                                     )
                                                 )
@@ -513,7 +526,7 @@ fun PlayerContent(
                                     .shadow(
                                         albumShadow, RoundedCornerShape(24.dp),
                                         ambientColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                                        spotColor    = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
                                     )
                                     .clip(RoundedCornerShape(24.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -543,14 +556,16 @@ fun PlayerContent(
                                 if (!hideArtwork) {
                                     if (currentSong?.thumbnailUrl != null) {
                                         AsyncImage(
-                                            model              = currentSong!!.thumbnailUrl,
+                                            model = currentSong!!.thumbnailUrl,
                                             contentDescription = "Album art",
-                                            modifier           = Modifier.fillMaxSize(),
-                                            contentScale       = ContentScale.Crop
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
                                         )
                                     } else {
-                                        Icon(Icons.Default.MusicNote, null, Modifier.size(96.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                                        Icon(
+                                            Icons.Default.MusicNote, null, Modifier.size(96.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                        )
                                     }
                                 }
                             }
@@ -568,7 +583,7 @@ fun PlayerContent(
                     AnimatedVisibility(
                         visible = showQueuePanel,
                         enter = fadeIn(tween(180)) + expandVertically(tween(220)),
-                        exit  = fadeOut(tween(140)) + shrinkVertically(tween(180))
+                        exit = fadeOut(tween(140)) + shrinkVertically(tween(180))
                     ) {
                         UpNextPanel(
                             items = upNext,
@@ -594,7 +609,7 @@ fun PlayerContent(
                     // ── Song info ────────────────────────────────────────────
                     Column(Modifier.fillMaxWidth()) {
                         AnimatedContent(
-                            targetState    = currentSong?.title ?: "",
+                            targetState = currentSong?.title ?: "",
                             transitionSpec = {
                                 (fadeIn(tween(220)) + slideInVertically(tween(220)) { -it / 3 })
                                     .togetherWith(fadeOut(tween(160)))
@@ -603,15 +618,15 @@ fun PlayerContent(
                         ) { title ->
                             Text(
                                 title.ifEmpty { "Nothing playing" },
-                                style      = MaterialTheme.typography.headlineSmall,
+                                style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
-                                maxLines   = 1,
-                                overflow   = TextOverflow.Ellipsis
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                         Spacer(Modifier.height(4.dp))
                         AnimatedContent(
-                            targetState    = currentSong?.artist ?: "",
+                            targetState = currentSong?.artist ?: "",
                             transitionSpec = {
                                 (fadeIn(tween(220)) + slideInVertically(tween(220)) { -it / 3 })
                                     .togetherWith(fadeOut(tween(160)))
@@ -620,8 +635,8 @@ fun PlayerContent(
                         ) { artist ->
                             Text(
                                 artist,
-                                style    = MaterialTheme.typography.bodyLarge,
-                                color    = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -652,18 +667,22 @@ fun PlayerContent(
                                 isDragging = false
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            colors   = SliderDefaults.colors(
-                                thumbColor         = MaterialTheme.colorScheme.primary,
-                                activeTrackColor   = MaterialTheme.colorScheme.primary,
+                            colors = SliderDefaults.colors(
+                                thumbColor = MaterialTheme.colorScheme.primary,
+                                activeTrackColor = MaterialTheme.colorScheme.primary,
                                 inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
                             )
                         )
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             val displayPos = if (isDragging) (sliderPosition * duration).toLong() else position
-                            Text(displayPos.toTimeString(), style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(duration.toTimeString(), style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                displayPos.toTimeString(), style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                duration.toTimeString(), style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
 
@@ -673,22 +692,25 @@ fun PlayerContent(
                     Row(
                         Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment     = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { viewModel.toggleShuffle() }) {
-                            Icon(Icons.Default.Shuffle, "Shuffle", Modifier.size(22.dp),
+                            Icon(
+                                Icons.Default.Shuffle, "Shuffle", Modifier.size(22.dp),
                                 tint = if (isShuffled) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                         IconButton(onClick = { viewModel.playPrevious() }, Modifier.size(52.dp)) {
                             Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(36.dp))
                         }
                         FilledIconButton(
-                            onClick  = { viewModel.togglePlayback() },
+                            onClick = { viewModel.togglePlayback() },
                             modifier = Modifier.size(72.dp),
-                            shape    = CircleShape,
-                            colors   = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary)
+                            shape = CircleShape,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
                         ) {
                             AnimatedContent(
                                 targetState = isPlaying,
@@ -711,15 +733,23 @@ fun PlayerContent(
                         }
                         IconButton(onClick = { viewModel.toggleRepeat() }) {
                             when (repeatMode) {
-                                RepeatMode.NONE -> Icon(Icons.Default.Repeat, "Repeat off",
+                                RepeatMode.NONE -> Icon(
+                                    Icons.Default.Repeat, "Repeat off",
                                     Modifier.size(22.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                RepeatMode.ALL  -> Icon(Icons.Default.Repeat, "Repeat all",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                RepeatMode.ALL -> Icon(
+                                    Icons.Default.Repeat, "Repeat all",
                                     Modifier.size(22.dp),
-                                    tint = MaterialTheme.colorScheme.primary)
-                                RepeatMode.ONE  -> Icon(Icons.Default.RepeatOne, "Repeat one",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+
+                                RepeatMode.ONE -> Icon(
+                                    Icons.Default.RepeatOne, "Repeat one",
                                     Modifier.size(22.dp),
-                                    tint = MaterialTheme.colorScheme.primary)
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
@@ -728,13 +758,30 @@ fun PlayerContent(
                 }
             }
 
+            // ── Add to Playlist dialog ─────────────────────────────────
+
+            if (showSharePlatformDialog && currentSong != null) {
+                val song = currentSong!!
+                ShareLinkPlatformDialog(
+                    songTitle = song.title,
+                    state = shareLinkState,
+                    onPickPlatform = { key ->
+                        viewModel.shareSongAsLinkOnPlatform(song, key)
+                    },
+                    onPickOriginal = {
+                        viewModel.shareSongAsLink(song)
+                    },
+                    onDismiss = { showSharePlatformDialog = false }
+                )
+            }
+
             // ── Add to Playlist dialog ─────────────────────────────────────
             // Spawned from the overflow menu above. Same dialog the Library
             // list rows use; lives in com.Music.LibraryScreen (same package).
             if (showAddToPlaylist) {
                 AddToPlaylistDialog(
                     playlists = playlists.map { it.playlist },
-                    onSelect  = { plId ->
+                    onSelect = { plId ->
                         currentSong?.let { viewModel.addSongToPlaylist(plId, it.id) }
                         showAddToPlaylist = false
                     },
@@ -751,8 +798,8 @@ fun PlayerContent(
                 AlertDialog(
                     onDismissRequest = { showConfirmDelete = false },
                     containerColor = MaterialTheme.colorScheme.background,
-                    title   = { Text("Delete song?") },
-                    text    = {
+                    title = { Text("Delete song?") },
+                    text = {
                         Text("\"${song.title}\" will be permanently removed from your library and its file deleted.")
                     },
                     confirmButton = {
@@ -763,7 +810,7 @@ fun PlayerContent(
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
                             )
                         ) { Text("Delete") }
                     },
@@ -783,8 +830,8 @@ fun PlayerContent(
                 AlertDialog(
                     onDismissRequest = { showConfirmRemoveFromPlaylist = false },
                     containerColor = MaterialTheme.colorScheme.background,
-                    title   = { Text("Remove from playlist?") },
-                    text    = {
+                    title = { Text("Remove from playlist?") },
+                    text = {
                         Text("\"${song.title}\" will be removed from \"$plName\". It stays in your library.")
                     },
                     confirmButton = {
@@ -795,7 +842,7 @@ fun PlayerContent(
                             },
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer,
-                                contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
                             )
                         ) { Text("Remove") }
                     },
@@ -942,7 +989,7 @@ private fun UpNextPanel(
                         val dismissState = rememberSwipeToDismissBoxState(
                             confirmValueChange = { value ->
                                 val accepted = value == SwipeToDismissBoxValue.StartToEnd ||
-                                    value == SwipeToDismissBoxValue.EndToStart
+                                        value == SwipeToDismissBoxValue.EndToStart
                                 if (accepted) pendingDismiss = value
                                 accepted
                             }
@@ -954,7 +1001,8 @@ private fun UpNextPanel(
                             val target = pendingDismiss ?: return@LaunchedEffect
                             delay(160)
                             if (pendingDismiss == target &&
-                                dismissState.currentValue != target) {
+                                dismissState.currentValue != target
+                            ) {
                                 dismissState.snapTo(target)
                             }
                         }
@@ -967,6 +1015,7 @@ private fun UpNextPanel(
                                         (swipeGenerations[item.mediaId] ?: 0) + 1
                                     onQueueItem(item)
                                 }
+
                                 SwipeToDismissBoxValue.EndToStart -> onRemove(item)
                                 SwipeToDismissBoxValue.Settled -> Unit
                             }
@@ -991,7 +1040,7 @@ private fun UpNextPanel(
                                         if (isQueueAdd) Icons.Default.PlaylistAdd else Icons.Default.Delete,
                                         if (isQueueAdd) "Add to queue" else "Remove",
                                         tint = if (isQueueAdd) MaterialTheme.colorScheme.primary
-                                               else MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.error
                                     )
                                 }
                             }
@@ -1083,19 +1132,19 @@ fun VideoPlayerView(
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
-                useController  = false
+                useController = false
                 this.resizeMode = resizeMode
-                layoutParams   = ViewGroup.LayoutParams(
+                layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT
                 )
             }
         },
-        update    = { view ->
+        update = { view ->
             view.player = player
             view.resizeMode = resizeMode
         },
         onRelease = { view -> view.player = null },
-        modifier  = modifier
+        modifier = modifier
     )
 }

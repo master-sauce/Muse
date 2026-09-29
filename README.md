@@ -37,7 +37,7 @@ Just a music player that respects your files and your privacy.
 - **UI**: Jetpack Compose, Material 3, Navigation for Compose
 - **Player**: ExoPlayer (Media3) with MediaSessionService for background playback
 - **Database**: Room (SQLite) with migrations
-- **Networking**: Retrofit (Odesli API for link resolution, LrcLib for lyrics)
+- **Networking**: Retrofit (Odesli for link resolution, LrcLib for lyrics)
 - **Downloader**: youtube-dl-android (yt-dlp + FFmpeg)
 - **Architecture**: MVVM with AndroidViewModel, Coroutines + Flow
 - **Build**: Gradle with Kotlin DSL

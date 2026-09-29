@@ -23,6 +23,7 @@ import com.Music.data.remote.LyricsResponse
 import com.Music.data.remote.LyricsService
 import com.Music.data.remote.LrcParser
 import com.Music.data.remote.LyricsState
+import com.Music.data.remote.tempRoutingToken
 import com.Music.downloader.BatchDownloadState
 import com.Music.downloader.DownloadState
 import com.Music.downloader.DownloadTask
@@ -31,12 +32,16 @@ import com.Music.player.PlaybackService
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -54,13 +59,16 @@ import java.util.concurrent.TimeUnit
 sealed interface PreviewState {
     /** No preview active; sheet hidden. */
     data object Idle : PreviewState
+
     /** Clip is being fetched for [result]; sheet shows a spinner. */
     data class Loading(val result: com.Music.downloader.SearchResult) : PreviewState
+
     /** Clip ready and playing; [file] is the temp audio file. */
     data class Ready(
         val result: com.Music.downloader.SearchResult,
         val file: File
     ) : PreviewState
+
     /** Fetch failed; [message] shown inline in the sheet. */
     data class Error(
         val result: com.Music.downloader.SearchResult,
@@ -106,7 +114,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 dir.listFiles()?.forEach { f ->
                     if (f.lastModified() < cutoff) f.delete()
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -147,11 +156,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val songSortMode: StateFlow<SongSortMode> = _songSortMode.asStateFlow()
 
     private fun loadSongSortMode(): SongSortMode {
-        val prefs = getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
+        val prefs =
+            getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
         return when (prefs.getString("song_sort_mode", "NEWEST")) {
             "OLDEST" -> SongSortMode.OLDEST
             "CUSTOM" -> SongSortMode.CUSTOM
-            else     -> SongSortMode.NEWEST
+            else -> SongSortMode.NEWEST
         }
     }
 
@@ -199,8 +209,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Share intents emitted by the download engine (links file / library export). */
     val downloadShareIntents = DownloadState.shareIntents
 
-    private val _isImporting      = MutableStateFlow(false)
-    val isImporting               = _isImporting.asStateFlow()
+    private val _isImporting = MutableStateFlow(false)
+    val isImporting = _isImporting.asStateFlow()
 
     /** Share intents emitted by this ViewModel for the UI to startActivity on. */
     private val _shareIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 4)
@@ -213,7 +223,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val controller: MediaController?
         get() = if (controllerFuture?.isDone == true) controllerFuture?.get() else null
 
-    private val _exoPlayer        = MutableStateFlow<Player?>(null)
+    private val _exoPlayer = MutableStateFlow<Player?>(null)
     val exoPlayer: StateFlow<Player?> = _exoPlayer.asStateFlow()
 
     // ── Search-result 30s preview player ─────────────────────────────────────
@@ -234,18 +244,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _previewDuration = MutableStateFlow(0L)
     val previewDuration: StateFlow<Long> = _previewDuration.asStateFlow()
 
-    private val _isPlaying        = MutableStateFlow(false)
-    val isPlaying                 = _isPlaying.asStateFlow()
-    private val _currentSong      = MutableStateFlow<SongEntity?>(null)
-    val currentSong               = _currentSong.asStateFlow()
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying = _isPlaying.asStateFlow()
+    private val _currentSong = MutableStateFlow<SongEntity?>(null)
+    val currentSong = _currentSong.asStateFlow()
     private val _playbackProgress = MutableStateFlow(0f)
-    val playbackProgress          = _playbackProgress.asStateFlow()
-    private val _currentPosition  = MutableStateFlow(0L)
-    val currentPosition           = _currentPosition.asStateFlow()
-    private val _duration         = MutableStateFlow(0L)
-    val duration                  = _duration.asStateFlow()
-    private val _isShuffled       = MutableStateFlow(false)
-    val isShuffled                = _isShuffled.asStateFlow()
+    val playbackProgress = _playbackProgress.asStateFlow()
+    private val _currentPosition = MutableStateFlow(0L)
+    val currentPosition = _currentPosition.asStateFlow()
+    private val _duration = MutableStateFlow(0L)
+    val duration = _duration.asStateFlow()
+    private val _isShuffled = MutableStateFlow(false)
+    val isShuffled = _isShuffled.asStateFlow()
+
     // Remembers whether shuffle was ON before the user started a manual queue.
     // While the manual queue has songs in it we force shuffle OFF so the queued
     // songs play in their exact added order (right after the current song);
@@ -260,9 +271,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _shuffleRestoreOnDrain = MutableStateFlow(-1)
     private var shuffleRestoreOnDrain: Int
         get() = _shuffleRestoreOnDrain.value
-        set(value) { _shuffleRestoreOnDrain.value = value }
-    private val _repeatMode       = MutableStateFlow(RepeatMode.NONE)
-    val repeatMode                = _repeatMode.asStateFlow()
+        set(value) {
+            _shuffleRestoreOnDrain.value = value
+        }
+    private val _repeatMode = MutableStateFlow(RepeatMode.NONE)
+    val repeatMode = _repeatMode.asStateFlow()
     private var progressJob: Job? = null
     private var lastMediaItemIndex = C.INDEX_UNSET
 
@@ -295,13 +308,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // by onTimelineChanged once the controller confirms the new timeline, so the
     // scroll-to-top generation bump happens AFTER the Up Next list has the new
     // order (see onTimelineChanged in setupController).
-    @Volatile private var pendingReshuffleScroll = false
+    @Volatile
+    private var pendingReshuffleScroll = false
 
     // Set by reshuffle() right before it flips the player's shuffle mode off;
     // onShuffleModeEnabledChanged consumes it so the flag change doesn't reset
     // _isShuffled (the UI should still show "shuffled" — the shuffle is now
     // baked into timeline order).
-    @Volatile private var suppressShuffleFlagUpdate = false
+    @Volatile
+    private var suppressShuffleFlagUpdate = false
 
     // True while the upcoming songs are stored in SHUFFLED ORDER directly in the
     // player's timeline (after [reshuffle]) instead of via ExoPlayer's own
@@ -311,7 +326,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // this to know whether turning shuffle OFF needs to rebuild the timeline
     // back into source order (baked-in → must reload) or just flip the flag
     // (native shuffle → flag flip is enough).
-    @Volatile private var shuffleBakedIn = false
+    @Volatile
+    private var shuffleBakedIn = false
 
     private val _isQueueMode = MutableStateFlow(false)
     val isQueueMode: StateFlow<Boolean> = _isQueueMode.asStateFlow()
@@ -382,7 +398,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _playlistSortModes.value[playlistId] ?: SongSortMode.NEWEST
 
     private fun loadPlaylistSortModes(): Map<Long, SongSortMode> {
-        val prefs = getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
+        val prefs =
+            getApplication<Application>().getSharedPreferences("muse_prefs", android.content.Context.MODE_PRIVATE)
         val raw = prefs.getString("playlist_sort_modes", null) ?: return emptyMap()
         return buildMap {
             raw.split(',').forEach { pair ->
@@ -393,7 +410,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         "OLDEST" -> SongSortMode.OLDEST
                         "CUSTOM" -> SongSortMode.CUSTOM
                         "NEWEST" -> SongSortMode.NEWEST
-                        else     -> return@forEach
+                        else -> return@forEach
                     }
                     put(id, mode)
                 }
@@ -453,6 +470,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _playlistSongs = MutableStateFlow<List<SongEntity>>(emptyList())
     val playlistSongs: StateFlow<List<SongEntity>> = _playlistSongs.asStateFlow()
     private var playlistSongsJob: Job? = null
+
     /** The playlist currently loaded into [_playlistSongs] (for re-sort on mode change). */
     private var loadedPlaylistId: Long? = null
 
@@ -646,6 +664,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
+
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val oldSongId = _currentSong.value?.id
                 val newIndex = player.currentMediaItemIndex
@@ -678,14 +697,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val song = _songs.value.find { it.id == mediaItem?.mediaId }
                 _currentSong.value = song
-                
+
                 // Sync with player's current position (don't force to 0)
                 val currentPos = player.currentPosition
                 _currentPosition.value = currentPos
-                
+
                 val dur = if (player.duration > 0) player.duration else (song?.duration ?: 0L)
                 _duration.value = dur
-                
+
                 if (dur > 0) {
                     _playbackProgress.value = currentPos.toFloat() / dur
                 } else {
@@ -696,6 +715,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 song?.let { repository.saveLastPlayed(it.id, currentPos, _playingPlaylistId.value) }
                 updateQueue()
             }
+
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     val dur = player.duration
@@ -708,6 +728,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 updateQueue()
             }
+
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                 updateQueue()
                 // reshuffle() sets this flag before issuing the async
@@ -720,6 +741,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _reshuffleGeneration.value = _reshuffleGeneration.value + 1
                 }
             }
+
             override fun onRepeatModeChanged(repeatMode: Int) {
                 _repeatMode.value = when (repeatMode) {
                     Player.REPEAT_MODE_ALL -> RepeatMode.ALL
@@ -727,6 +749,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     else -> RepeatMode.NONE
                 }
             }
+
             override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
                 // reshuffle() turns the player's shuffle MODE off (so the Up
                 // Next panel reads our re-rolled timeline directly) but keeps
@@ -814,9 +837,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val pos = p.currentPosition
                     if (dur > 0) {
                         _playbackProgress.value = pos.toFloat() / dur
-                        _currentPosition.value  = pos
-                        _duration.value         = dur
-                        
+                        _currentPosition.value = pos
+                        _duration.value = dur
+
                         // Save position every 5 seconds to SharedPreferences
                         val now = System.currentTimeMillis()
                         if (now - lastSaveTime > 5000) {
@@ -830,7 +853,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun stopProgressUpdate() { progressJob?.cancel() }
+    private fun stopProgressUpdate() {
+        progressJob?.cancel()
+    }
 
     private fun fetchLyrics(song: SongEntity) {
         // Re-fetch guard: keep a token of the song we kicked off the request
@@ -860,11 +885,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     try {
                         val resp = lyricsService.getLyrics(
                             artistName = cleanArtist,
-                            trackName  = cleanTitle,
-                            duration   = durationSec
+                            trackName = cleanTitle,
+                            duration = durationSec
                         )
                         if (resp.isSuccessful) resp.body()?.toLyricsState() else null
-                    } catch (_: Exception) { null }
+                    } catch (_: Exception) {
+                        null
+                    }
                 } else null
 
                 val result = exact ?: run {
@@ -874,7 +901,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // ranked list: prefer synced → plain → instrumental, and
                     // (when we have a duration) the one closest to it.
                     val searchResp = lyricsService.searchLyrics(
-                        trackName  = cleanTitle,
+                        trackName = cleanTitle,
                         artistName = cleanArtist.takeIf { it.isNotBlank() }
                     )
                     if (searchResp.isSuccessful) {
@@ -902,6 +929,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             else plainLyrics?.takeIf { it.isNotBlank() }?.let { LyricsState.Plain(it) }
                 ?: LyricsState.NotFound
         }
+
         !plainLyrics.isNullOrBlank() -> LyricsState.Plain(plainLyrics)
         else -> LyricsState.NotFound
     }
@@ -923,7 +951,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (isEmpty()) return LyricsState.NotFound
 
         val withSynced = filter { !it.syncedLyrics.isNullOrBlank() }
-        val withPlain  = filter { !it.plainLyrics.isNullOrBlank() }
+        val withPlain = filter { !it.plainLyrics.isNullOrBlank() }
 
         val bestSynced = withSynced.closestByDuration(durationSec)
         if (bestSynced != null) {
@@ -965,23 +993,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun importLocalSong(uri: Uri) {
         viewModelScope.launch {
             _isImporting.value = true
-            try { 
+            try {
                 val result = repository.importFromUri(uri)
                 if (result == "duplicate") {
                     _errorEvents.emit("This song is already in your library")
                 }
+            } catch (e: Exception) {
+                _errorEvents.emit("Import failed: ${e.localizedMessage}")
+            } finally {
+                _isImporting.value = false
             }
-            catch (e: Exception) { _errorEvents.emit("Import failed: ${e.localizedMessage}") }
-            finally { _isImporting.value = false }
         }
     }
 
     fun importFromFolder(uri: Uri) {
         viewModelScope.launch {
             _isImporting.value = true
-            try { repository.importFromFolder(uri) }
-            catch (e: Exception) { _errorEvents.emit("Folder import failed: ${e.localizedMessage}") }
-            finally { _isImporting.value = false }
+            try {
+                repository.importFromFolder(uri)
+            } catch (e: Exception) {
+                _errorEvents.emit("Folder import failed: ${e.localizedMessage}")
+            } finally {
+                _isImporting.value = false
+            }
         }
     }
 
@@ -1068,7 +1102,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val processId = "preview_" + System.currentTimeMillis()
                 val file = repository.downloadPreviewClip(result.url, processId)
-                if (!currentCoroutineContext().isActive) { file.delete(); return@launch }
+                if (!currentCoroutineContext().isActive) {
+                    file.delete(); return@launch
+                }
                 _preview.value = PreviewState.Ready(result, file)
                 playPreviewFile(file)
             } catch (e: CancellationException) {
@@ -1090,6 +1126,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 override fun onIsPlayingChanged(playing: Boolean) {
                     _previewPlaying.value = playing
                 }
+
                 override fun onPlaybackStateChanged(state: Int) {
                     if (state == Player.STATE_READY) {
                         _previewDuration.value = p.duration.coerceAtLeast(0L)
@@ -1176,7 +1213,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Playing from the Library, not a playlist.
         _playingPlaylistId.value = null
         val player = controller ?: return
-        val items  = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
+        val items = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
 
         val startIndex = items.indexOfFirst { it.mediaId == song.id }.coerceAtLeast(0)
@@ -1312,6 +1349,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // would randomize it again, so restore only visible intent.
                 _isShuffled.value = true
             }
+
             restore -> {
                 // Shuffle was requested while an originally unshuffled manual
                 // queue was active. Bake one shuffle now, after queue drains.
@@ -1319,6 +1357,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 shuffleBakedIn = true
                 _isShuffled.value = true
             }
+
             else -> {
                 if (player.shuffleModeEnabled) player.shuffleModeEnabled = false
                 _isShuffled.value = false
@@ -1474,7 +1513,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // after that conversion; using pre-conversion index moved wrong song.
         var fromIndex = -1
         for (i in 0 until player.mediaItemCount) {
-            if (player.getMediaItemAt(i).mediaId == mediaId) { fromIndex = i; break }
+            if (player.getMediaItemAt(i).mediaId == mediaId) {
+                fromIndex = i; break
+            }
         }
         if (fromIndex < 0 || fromIndex == player.currentMediaItemIndex) return
 
@@ -1558,7 +1599,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         shuffleRestoreOnDrain = -1
         _playingPlaylistId.value = fromPlaylistId
         val player = controller ?: return
-        val items  = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
+        val items = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
         // Resolve the effective shuffle state: the explicit [shuffle] arg
         // (from Library / PlaylistDetail "Shuffle" buttons) OR a carried-over
@@ -1889,9 +1930,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleRepeat() {
         val p = controller ?: return
         val nextMode = when (p.repeatMode) {
-            Player.REPEAT_MODE_OFF  -> Player.REPEAT_MODE_ALL
-            Player.REPEAT_MODE_ALL  -> Player.REPEAT_MODE_ONE
-            Player.REPEAT_MODE_ONE  -> Player.REPEAT_MODE_OFF
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            Player.REPEAT_MODE_ONE -> Player.REPEAT_MODE_OFF
             else -> Player.REPEAT_MODE_OFF
         }
         p.repeatMode = nextMode
@@ -1902,9 +1943,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startDrag() { isDragInProgress = true }
-    
-    private fun syncPlayerWithMove(songId: String, fromListIndex: Int, toListIndex: Int, currentList: List<SongEntity>) {
+    fun startDrag() {
+        isDragInProgress = true
+    }
+
+    private fun syncPlayerWithMove(
+        songId: String,
+        fromListIndex: Int,
+        toListIndex: Int,
+        currentList: List<SongEntity>
+    ) {
         val player = controller ?: return
         if (_isQueueMode.value) return
 
@@ -1973,7 +2021,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (fromTimelineIndex < 0 || toTimelineIndex < 0) return
 
         if (fromTimelineIndex != toTimelineIndex &&
-            toTimelineIndex in 0 until player.mediaItemCount) {
+            toTimelineIndex in 0 until player.mediaItemCount
+        ) {
             player.moveMediaItem(fromTimelineIndex, toTimelineIndex)
             updateQueue()
         }
@@ -2150,21 +2199,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _selectedIds.value = _selectedIds.value - ids
     }
 
-    fun selectAll()      { _selectedIds.value = _songs.value.map { it.id }.toSet() }
-    fun clearSelection() { _selectedIds.value = emptySet() }
+    fun selectAll() {
+        _selectedIds.value = _songs.value.map { it.id }.toSet()
+    }
+
+    fun clearSelection() {
+        _selectedIds.value = emptySet()
+    }
 
     // ── Playlist-detail selection helpers ──────────────────────────────────
     fun togglePlaylistSelect(id: String) {
         _playlistSelectedIds.value = _playlistSelectedIds.value.toMutableSet().also { if (!it.add(id)) it.remove(id) }
     }
+
     fun selectPlaylistIds(ids: Collection<String>) {
         if (ids.isNotEmpty()) _playlistSelectedIds.value = _playlistSelectedIds.value + ids
     }
+
     fun deselectPlaylistIds(ids: Collection<String>) {
         if (ids.isNotEmpty()) _playlistSelectedIds.value = _playlistSelectedIds.value - ids
     }
-    fun selectAllPlaylist() { _playlistSelectedIds.value = _playlistSongs.value.map { it.id }.toSet() }
-    fun clearPlaylistSelection() { _playlistSelectedIds.value = emptySet() }
+
+    fun selectAllPlaylist() {
+        _playlistSelectedIds.value = _playlistSongs.value.map { it.id }.toSet()
+    }
+
+    fun clearPlaylistSelection() {
+        _playlistSelectedIds.value = emptySet()
+    }
 
     /** Remove every selected song from the given playlist, then clear the selection. */
     fun removeSelectedFromPlaylist(playlistId: Long) {
@@ -2328,6 +2390,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** UI-facing state for the platform link resolution flow. */
+    enum class ShareLinkState { IDLE, LOADING }
+
+    private val _shareLinkState = MutableStateFlow(ShareLinkState.IDLE)
+    val shareLinkState: StateFlow<ShareLinkState> = _shareLinkState.asStateFlow()
+
+    /**
+     * Resolve [song]'s source link to a platform-specific URL via the link
+     * resolver and share the resulting link. [platform] is the platform key —
+     * "youtube", "youtubeMusic", "spotify", or "appleMusic".
+     * Shows a loading state while resolving, times out after 15s, and surfaces
+     * a distinct error toast if the resolver has no match for the requested
+     * platform (instead of silently sharing the original link).
+     */
+    fun shareSongAsLinkOnPlatform(song: SongEntity, platform: String) {
+        val link = song.sourceUrl.trim()
+        if (!link.startsWith("http")) {
+            viewModelScope.launch { _errorEvents.emit("This song has no link to share") }
+            return
+        }
+        viewModelScope.launch {
+            _shareLinkState.value = ShareLinkState.LOADING
+            var hadError = false
+            val resolved = try {
+                withTimeout(15_000L) {
+                    val resp = withContext(Dispatchers.IO) { repository.odesli.getLinks(link, tempRoutingToken()) }
+                    resp.linksByPlatform[platform]?.url
+                }
+            } catch (e: TimeoutCancellationException) {
+                hadError = true
+                _errorEvents.emit("Link resolver took too long; try again")
+                null
+            } catch (e: Exception) {
+                hadError = true
+                _errorEvents.emit("Couldn't reach link resolver: ${e.localizedMessage ?: e.javaClass.simpleName}")
+                null
+            } finally {
+                _shareLinkState.value = ShareLinkState.IDLE
+            }
+            if (resolved == null) {
+                // Only emit the no-match toast when the API call succeeded
+                // but the platform wasn't in the response. Errors (timeout /
+                // network / API) already toasted above.
+                if (!hadError) _errorEvents.emit("No ${platform} link found for this song")
+                return@launch
+            }
+            _shareIntents.emit(
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, resolved)
+                        putExtra(Intent.EXTRA_TITLE, song.title)
+                    },
+                    "Share \"${song.title}\" as link"
+                )
+            )
+        }
+    }
+
     /**
      * Share every currently selected song as a list of its source links (one
      * per line) instead of a zip of files. Each song's stored `sourceUrl` is
@@ -2404,8 +2525,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addSongToPlaylist(playlistId: Long, songId: String) = viewModelScope.launch {
         repository.addSongToPlaylist(playlistId, songId)
     }
+
     fun renamePlaylist(id: Long, name: String) = viewModelScope.launch { repository.renamePlaylist(id, name) }
-    fun removeSongFromPlaylist(playlistId: Long, songId: String) = viewModelScope.launch { repository.removeSongFromPlaylist(playlistId, songId) }
+    fun removeSongFromPlaylist(playlistId: Long, songId: String) =
+        viewModelScope.launch { repository.removeSongFromPlaylist(playlistId, songId) }
+
     fun getPlaylistSongs(playlistId: Long) = repository.getPlaylistSongs(playlistId)
     suspend fun getPlaylistById(id: Long) = repository.getPlaylistById(id)
 
