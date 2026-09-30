@@ -7,7 +7,7 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
 import com.Music.data.local.*
-import com.Music.data.remote.OdesliService
+import com.Music.data.remote.PlatformsService
 import com.Music.data.remote.tempRoutingToken
 import com.Music.downloader.DownloadManager
 import com.Music.downloader.PlaylistEntry
@@ -21,7 +21,7 @@ import java.io.File
 class MusicRepository(
     private val songDao: SongDao,
     private val playlistDao: PlaylistDao,
-    private val odesliService: OdesliService,
+    private val platformsService: PlatformsService,
     private val downloadManager: DownloadManager,
     private val context: Context
 ) {
@@ -31,7 +31,7 @@ class MusicRepository(
     val playlistsWithSongs: Flow<List<PlaylistWithSongs>> = playlistDao.getPlaylistsWithSongs()
 
     /** Exposed so callers can resolve cross-platform links via the resolver. */
-    val odesli: OdesliService get() = odesliService
+    val platforms: PlatformsService get() = platformsService
 
     fun getPlaylistSongs(playlistId: Long): Flow<List<SongEntity>> =
         playlistDao.getSongsInPlaylist(playlistId)
@@ -63,7 +63,7 @@ class MusicRepository(
 
         if (url.contains("spotify.com") || url.contains("apple.com")) {
             try {
-                val resp = odesliService.getLinks(url, tempRoutingToken())
+                val resp = platformsService.getLinks(url, tempRoutingToken())
                 val entity = resp.entitiesByUniqueId[resp.entityUniqueId]
                 resp.linksByPlatform["youtube"]?.url?.let {
                     finalUrl = it

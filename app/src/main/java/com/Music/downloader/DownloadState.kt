@@ -5,7 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import com.Music.data.MusicRepository
-import com.Music.data.remote.OdesliService
+import com.Music.data.remote.PlatformsService
 import com.Music.player.DownloadService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -106,6 +106,7 @@ object DownloadState {
     // from prefs on each download (rather than cached in a field) so a change
     // made from the UI takes effect immediately without needing a re-init.
     private val _autoAddPlaylistId = MutableStateFlow<Long?>(loadAutoAddPlaylistId())
+
     /** Flow of the current auto-add playlist id (null = feature off). */
     val autoAddPlaylistId: StateFlow<Long?> = _autoAddPlaylistId.asStateFlow()
 
@@ -236,7 +237,8 @@ object DownloadState {
     private val _shareIntents = MutableSharedFlow<Intent>(extraBufferCapacity = 4)
     val shareIntents: SharedFlow<Intent> = _shareIntents.asSharedFlow()
 
-    @Volatile private var batchCancelFlag = false
+    @Volatile
+    private var batchCancelFlag = false
     private var currentProcessId: String? = null
     private var batchJob: Job? = null
 
@@ -244,7 +246,7 @@ object DownloadState {
 
     /**
      * Must be called once from [com.Music.MuseApp.onCreate] before any download
-     * method is used. Builds the DB + repository + Odesli service.
+     * method is used. Builds the DB + repository + link resolver service.
      */
     fun init(context: Context) {
         if (this::appContext.isInitialized) return
@@ -275,13 +277,13 @@ object DownloadState {
             })
             .build()
 
-        val odesliService = Retrofit.Builder()
+        val platformsService = Retrofit.Builder()
             .baseUrl("https://api.song.link/v1-alpha.1/")
             .addConverterFactory(GsonConverterFactory.create())
-            .build().create(OdesliService::class.java)
+            .build().create(PlatformsService::class.java)
 
         repository = MusicRepository(
-            db.songDao(), db.playlistDao(), odesliService,
+            db.songDao(), db.playlistDao(), platformsService,
             DownloadManager(appContext), appContext
         )
 
@@ -581,7 +583,8 @@ object DownloadState {
 
     // ── Notification + foreground service lifecycle ─────────────────────────
 
-    @Volatile private var serviceRunning = false
+    @Volatile
+    private var serviceRunning = false
 
     /**
      * Push the current aggregate state to the single foreground notification.
@@ -624,7 +627,8 @@ object DownloadState {
             appContext.startService(Intent(appContext, DownloadService::class.java).apply {
                 action = DownloadService.ACTION_STOP
             })
-        } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+        }
         serviceRunning = false
     }
 }

@@ -23,6 +23,7 @@ import com.Music.data.remote.LyricsResponse
 import com.Music.data.remote.LyricsService
 import com.Music.data.remote.LrcParser
 import com.Music.data.remote.LyricsState
+import com.Music.data.remote.searchFallbackUrl
 import com.Music.data.remote.tempRoutingToken
 import com.Music.downloader.BatchDownloadState
 import com.Music.downloader.DownloadState
@@ -2415,7 +2416,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             var hadError = false
             val resolved = try {
                 withTimeout(15_000L) {
-                    val resp = withContext(Dispatchers.IO) { repository.odesli.getLinks(link, tempRoutingToken()) }
+                    val resp = withContext(Dispatchers.IO) { repository.platforms.getLinks(link, tempRoutingToken()) }
                     resp.linksByPlatform[platform]?.url
                 }
             } catch (e: TimeoutCancellationException) {
@@ -2430,10 +2431,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _shareLinkState.value = ShareLinkState.IDLE
             }
             if (resolved == null) {
-                // Only emit the no-match toast when the API call succeeded
-                // but the platform wasn't in the response. Errors (timeout /
-                // network / API) already toasted above.
-                if (!hadError) _errorEvents.emit("No ${platform} link found for this song")
+                // Resolver had no direct match for this platform. Fall back to
+                // the platform's search-results page built from title + artist,
+                // so the user always gets a clickable link. Only toast when even the
+                // fallback can't be built; errors (timeout / network / API)
+                // already toasted above.
+                if (hadError) return@launch
+                val fallback = searchFallbackUrl(platform, song.title, song.artist)
+                if (fallback == null) {
+                    _errorEvents.emit("No ${platform} link found for this song")
+                    return@launch
+                }
+                _shareIntents.emit(
+                    Intent.createChooser(
+                        Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, fallback)
+                            putExtra(Intent.EXTRA_TITLE, song.title)
+                        },
+                        "Share \"${song.title}\" as link"
+                    )
+                )
                 return@launch
             }
             _shareIntents.emit(
