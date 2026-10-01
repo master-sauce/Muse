@@ -47,35 +47,36 @@ fun PlaylistDetailScreen(
     onBack: () -> Unit,
     onNavigateToPlayer: () -> Unit
 ) {
-    val songs           by viewModel.playlistSongs.collectAsState()
+    val songs by viewModel.playlistSongs.collectAsState()
     // Each playlist keeps its own sort mode now, so we read the per-id map and
     // look up this playlist's mode (defaulting to NEWEST). Collecting the map
     // keeps the UI in sync if the mode changes elsewhere.
     val playlistSortModes by viewModel.playlistSortModes.collectAsState()
     val playlistSortMode = playlistSortModes[playlistId] ?: SongSortMode.NEWEST
-    val playlists       by viewModel.playlists.collectAsState()
-    val playlist        = playlists.find { it.playlist.id == playlistId }?.playlist
-    val currentSong     by viewModel.currentSong.collectAsState()
-    val isPlaying       by viewModel.isPlaying.collectAsState()
-    val queue           by viewModel.queue.collectAsState()
-    val selectedIds     by viewModel.playlistSelectedIds.collectAsState()
-    val inSelection     = selectedIds.isNotEmpty()
-    val isZipping       by viewModel.isZipping.collectAsState()
+    val playlists by viewModel.playlists.collectAsState()
+    val playlist = playlists.find { it.playlist.id == playlistId }?.playlist
+    val currentSong by viewModel.currentSong.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState()
+    val queue by viewModel.queue.collectAsState()
+    val selectedIds by viewModel.playlistSelectedIds.collectAsState()
+    val inSelection = selectedIds.isNotEmpty()
+    val isZipping by viewModel.isZipping.collectAsState()
+    val shareLinkState by viewModel.shareLinkState.collectAsState()
     var showAddSelectedToPlaylist by remember { mutableStateOf(false) }
-    var showShareMethodDialog     by remember { mutableStateOf(false) }
+    var showShareMethodDialog by remember { mutableStateOf(false) }
     // The chooser that pops up when the user taps the trash icon while songs
     // are selected: offers "Remove from Playlist" (keeps the songs in the
     // library) vs "Delete" (permanently removes the files from the library).
     // Each choice opens its own confirm dialog below.
-    var showManageSelectedDialog  by remember { mutableStateOf(false) }
+    var showManageSelectedDialog by remember { mutableStateOf(false) }
     var showConfirmRemoveSelected by remember { mutableStateOf(false) }
     var showConfirmDeleteSelected by remember { mutableStateOf(false) }
     // Confirm-before-remove dialog for removing a single song via its row
     // menu. Remembers which song the user tapped so the dialog can name it
     // and the confirm handler knows what to remove.
-    var showConfirmRemoveSingle  by remember { mutableStateOf(false) }
-    var pendingRemoveSong        by remember { mutableStateOf<SongEntity?>(null) }
-    val canReorder      = playlistSortMode == SongSortMode.CUSTOM
+    var showConfirmRemoveSingle by remember { mutableStateOf(false) }
+    var pendingRemoveSong by remember { mutableStateOf<SongEntity?>(null) }
+    val canReorder = playlistSortMode == SongSortMode.CUSTOM
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearching by remember { mutableStateOf(false) }
@@ -85,7 +86,7 @@ fun PlaylistDetailScreen(
         if (searchQuery.isEmpty()) songs
         else songs.filter {
             it.title.contains(searchQuery, ignoreCase = true) ||
-            it.artist.contains(searchQuery, ignoreCase = true)
+                    it.artist.contains(searchQuery, ignoreCase = true)
         }
     }
 
@@ -200,9 +201,11 @@ fun PlaylistDetailScreen(
                     title = {
                         Column {
                             Text(playlist?.name ?: "Playlist", fontWeight = FontWeight.Bold)
-                            Text("${songs.size} songs",
+                            Text(
+                                "${songs.size} songs",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     },
                     navigationIcon = {
@@ -219,16 +222,18 @@ fun PlaylistDetailScreen(
                                     Icon(Icons.Default.Sort, contentDescription = "Sort")
                                 }
                                 DropdownMenu(
-                                    expanded         = showSortMenu,
+                                    expanded = showSortMenu,
                                     onDismissRequest = { showSortMenu = false }
                                 ) {
                                     DropdownMenuItem(
-                                        text        = { Text("Newest first") },
+                                        text = { Text("Newest first") },
                                         leadingIcon = { Icon(Icons.Default.ArrowDownward, null) },
                                         trailingIcon = {
                                             if (playlistSortMode == SongSortMode.NEWEST) {
-                                                Icon(Icons.Default.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
+                                                Icon(
+                                                    Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
                                             }
                                         },
                                         onClick = {
@@ -237,12 +242,14 @@ fun PlaylistDetailScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text        = { Text("Oldest first") },
+                                        text = { Text("Oldest first") },
                                         leadingIcon = { Icon(Icons.Default.ArrowUpward, null) },
                                         trailingIcon = {
                                             if (playlistSortMode == SongSortMode.OLDEST) {
-                                                Icon(Icons.Default.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
+                                                Icon(
+                                                    Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
                                             }
                                         },
                                         onClick = {
@@ -251,12 +258,14 @@ fun PlaylistDetailScreen(
                                         }
                                     )
                                     DropdownMenuItem(
-                                        text        = { Text("Custom order") },
+                                        text = { Text("Custom order") },
                                         leadingIcon = { Icon(Icons.Default.DragHandle, null) },
                                         trailingIcon = {
                                             if (playlistSortMode == SongSortMode.CUSTOM) {
-                                                Icon(Icons.Default.Check, null,
-                                                    tint = MaterialTheme.colorScheme.primary)
+                                                Icon(
+                                                    Icons.Default.Check, null,
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
                                             }
                                         },
                                         onClick = {
@@ -279,26 +288,34 @@ fun PlaylistDetailScreen(
         // the screen; reserve space so list content isn't hidden behind it.
         val bottomInset = if (currentSong != null) 84.dp else 0.dp
         val contentPadding = PaddingValues(
-            top    = padding.calculateTopPadding(),
+            top = padding.calculateTopPadding(),
             bottom = padding.calculateBottomPadding() + bottomInset
         )
         if (filteredSongs.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.MusicNote, null, Modifier.size(56.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
+                    Icon(
+                        Icons.Default.MusicNote, null, Modifier.size(56.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    )
                     Spacer(Modifier.height(8.dp))
                     if (searchQuery.isNotEmpty()) {
-                        Text("No songs match your search",
+                        Text(
+                            "No songs match your search",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     } else {
-                        Text("No songs in this playlist",
+                        Text(
+                            "No songs in this playlist",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("Add songs via the ⋮ menu in the library",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            "Add songs via the ⋮ menu in the library",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
                     }
                 }
             }
@@ -316,10 +333,10 @@ fun PlaylistDetailScreen(
             // auto-scrolls so the user can keep marking songs beyond the
             // visible viewport; songs scrolling under a stationary finger are
             // toggled too, so none are missed.
-            val currentSongs     by rememberUpdatedState(filteredSongs)
-            val toggleSelectCb   by rememberUpdatedState { id: String -> viewModel.togglePlaylistSelect(id) }
+            val currentSongs by rememberUpdatedState(filteredSongs)
+            val toggleSelectCb by rememberUpdatedState { id: String -> viewModel.togglePlaylistSelect(id) }
             var dragSelectActive by remember { mutableStateOf(false) }
-            var lastDragIndex    by remember { mutableStateOf(-1) }
+            var lastDragIndex by remember { mutableStateOf(-1) }
             // Latest finger Y (in list-local px) while dragging; -1 when idle.
             var dragY by remember { mutableFloatStateOf(-1f) }
 
@@ -378,10 +395,11 @@ fun PlaylistDetailScreen(
                                 // The first list item is the Play All / Shuffle
                                 // header, so song rows start at index 1.
                                 val songIndex = info.index - 1
-                                val id = currentSongs.getOrNull(songIndex)?.id ?: return@detectDragGesturesAfterLongPress
+                                val id =
+                                    currentSongs.getOrNull(songIndex)?.id ?: return@detectDragGesturesAfterLongPress
                                 dragSelectActive = true
-                                lastDragIndex    = songIndex
-                                dragY            = offset.y
+                                lastDragIndex = songIndex
+                                dragY = offset.y
                                 toggleSelectCb(id)
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             },
@@ -391,7 +409,7 @@ fun PlaylistDetailScreen(
                                 toggleItemAt(change.position.y)
                                 change.consume()
                             },
-                            onDragEnd    = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f },
+                            onDragEnd = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f },
                             onDragCancel = { dragSelectActive = false; lastDragIndex = -1; dragY = -1f }
                         )
                     },
@@ -403,23 +421,23 @@ fun PlaylistDetailScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick  = { viewModel.playSongList(filteredSongs, 0, fromPlaylistId = playlistId) },
+                            onClick = { viewModel.playSongList(filteredSongs, 0, fromPlaylistId = playlistId) },
                             modifier = Modifier.weight(1f),
-                            shape    = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Play All")
                         }
                         OutlinedButton(
-                            onClick  = {
+                            onClick = {
                                 // Force-shuffle this playlist: the param sets
                                 // the player flag directly (toggleShuffle could
                                 // turn it off, or be swallowed by queue mode).
                                 viewModel.playSongList(filteredSongs, 0, fromPlaylistId = playlistId, shuffle = true)
                             },
                             modifier = Modifier.weight(1f),
-                            shape    = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Shuffle, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
@@ -432,7 +450,7 @@ fun PlaylistDetailScreen(
                 itemsIndexed(filteredSongs, key = { _, s -> s.id }) { index, song ->
                     ReorderableItem(reorderableState, key = song.id) { isDragging ->
                         val isInQueue = queue.any { it.mediaId == song.id && it.mediaId != currentSong?.id }
-                        
+
                         val dismissState = rememberSwipeToDismissBoxState(
                             confirmValueChange = {
                                 if (it == SwipeToDismissBoxValue.StartToEnd && !inSelection) {
@@ -468,20 +486,20 @@ fun PlaylistDetailScreen(
                         ) {
                             val elevation by animateDpAsState(if (isDragging) 8.dp else 0.dp, label = "plDragElev")
                             PlaylistSongItem(
-                                song        = song,
-                                isCurrent   = song.id == currentSong?.id,
-                                isPlaying   = isPlaying && song.id == currentSong?.id,
-                                isInQueue   = isInQueue,
-                                isSelected  = song.id in selectedIds,
+                                song = song,
+                                isCurrent = song.id == currentSong?.id,
+                                isPlaying = isPlaying && song.id == currentSong?.id,
+                                isInQueue = isInQueue,
+                                isSelected = song.id in selectedIds,
                                 inSelection = inSelection,
-                                isDragging  = isDragging,
+                                isDragging = isDragging,
                                 dragHandleModifier = Modifier.draggableHandle(
-                                    enabled       = canReorder && !inSelection && searchQuery.isEmpty(),
+                                    enabled = canReorder && !inSelection && searchQuery.isEmpty(),
                                     onDragStarted = { viewModel.startDrag() },
                                     onDragStopped = { viewModel.endPlaylistDrag(playlistId) }
                                 ),
                                 elevation = elevation,
-                                onPlay    = {
+                                onPlay = {
                                     if (song.id != currentSong?.id) {
                                         // Match the library behaviour: play the
                                         // tapped song within the FULL playlist
@@ -489,7 +507,11 @@ fun PlaylistDetailScreen(
                                         // next/previous navigates every song in
                                         // the playlist even while searching.
                                         val fullIndex = songs.indexOfFirst { it.id == song.id }
-                                        if (fullIndex >= 0) viewModel.playSongList(songs, fullIndex, fromPlaylistId = playlistId)
+                                        if (fullIndex >= 0) viewModel.playSongList(
+                                            songs,
+                                            fullIndex,
+                                            fromPlaylistId = playlistId
+                                        )
                                     }
                                     // Just play from the mini player — don't
                                     // open the big player. The mini player
@@ -501,11 +523,15 @@ fun PlaylistDetailScreen(
                                 onRemoveFromQueue = { viewModel.removeFromQueue(song.id) },
                                 onToggleSelect = { viewModel.togglePlaylistSelect(song.id) },
                                 onShareAsLink = { viewModel.shareSongAsLink(song) },
-                                onRemove  = {
+                                onShareAsLinkOnPlatform = { platform ->
+                                    viewModel.shareSongAsLinkOnPlatform(song, platform)
+                                },
+                                shareLinkState = shareLinkState,
+                                onRemove = {
                                     pendingRemoveSong = song
                                     showConfirmRemoveSingle = true
                                 },
-                                onDelete  = { viewModel.deleteSong(song) }
+                                onDelete = { viewModel.deleteSong(song) }
                             )
                         }
                     }
@@ -517,7 +543,7 @@ fun PlaylistDetailScreen(
     if (showAddSelectedToPlaylist) {
         AddToPlaylistDialog(
             playlists = playlists.map { it.playlist }.filter { it.id != playlistId },
-            onSelect  = { plId ->
+            onSelect = { plId ->
                 viewModel.addPlaylistSelectedToPlaylist(plId)
                 showAddSelectedToPlaylist = false
             },
@@ -532,12 +558,12 @@ fun PlaylistDetailScreen(
         AlertDialog(
             onDismissRequest = { showShareMethodDialog = false },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Share selected") },
-            text    = {
+            title = { Text("Share selected") },
+            text = {
                 Column {
                     Text(
                         "Choose how to share the ${selectedIds.size} selected " +
-                        "song${if (selectedIds.size == 1) "" else "s"}."
+                                "song${if (selectedIds.size == 1) "" else "s"}."
                     )
                     Spacer(Modifier.height(16.dp))
                     ListItem(
@@ -546,16 +572,22 @@ fun PlaylistDetailScreen(
                             viewModel.sharePlaylistSelectedAsZip()
                         },
                         headlineContent = {
-                            Text("Files (ZIP)",
-                                color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "Files (ZIP)",
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         },
                         supportingContent = {
-                            Text("Bundle the song files into a .zip archive",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "Bundle the song files into a .zip archive",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         },
                         leadingContent = {
-                            Icon(Icons.Default.Share, null,
-                                tint = MaterialTheme.colorScheme.primary)
+                            Icon(
+                                Icons.Default.Share, null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     )
                     HorizontalDivider()
@@ -565,16 +597,22 @@ fun PlaylistDetailScreen(
                             viewModel.sharePlaylistSelectedAsLinks()
                         },
                         headlineContent = {
-                            Text("Links",
-                                color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "Links",
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         },
                         supportingContent = {
-                            Text("Share the song links as text (one per line)",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "Share the song links as text (one per line)",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         },
                         leadingContent = {
-                            Icon(Icons.Default.Link, null,
-                                tint = MaterialTheme.colorScheme.primary)
+                            Icon(
+                                Icons.Default.Link, null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     )
                 }
@@ -594,12 +632,12 @@ fun PlaylistDetailScreen(
         AlertDialog(
             onDismissRequest = { showManageSelectedDialog = false },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Manage selected") },
-            text    = {
+            title = { Text("Manage selected") },
+            text = {
                 Column {
                     Text(
                         "Choose what to do with the ${selectedIds.size} selected " +
-                        "song${if (selectedIds.size == 1) "" else "s"}."
+                                "song${if (selectedIds.size == 1) "" else "s"}."
                     )
                     Spacer(Modifier.height(16.dp))
                     ListItem(
@@ -608,16 +646,22 @@ fun PlaylistDetailScreen(
                             showConfirmRemoveSelected = true
                         },
                         headlineContent = {
-                            Text("Remove from Playlist",
-                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
+                            Text(
+                                "Remove from Playlist",
+                                color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+                            )
                         },
                         supportingContent = {
-                            Text("Take the songs off this playlist; they stay in your library",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "Take the songs off this playlist; they stay in your library",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         },
                         leadingContent = {
-                            Icon(Icons.Default.RemoveCircleOutline, null,
-                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
+                            Icon(
+                                Icons.Default.RemoveCircleOutline, null,
+                                tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+                            )
                         }
                     )
                     HorizontalDivider()
@@ -627,16 +671,22 @@ fun PlaylistDetailScreen(
                             showConfirmDeleteSelected = true
                         },
                         headlineContent = {
-                            Text("Delete",
-                                color = MaterialTheme.colorScheme.error)
+                            Text(
+                                "Delete",
+                                color = MaterialTheme.colorScheme.error
+                            )
                         },
                         supportingContent = {
-                            Text("Permanently remove the songs and their files from your library",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "Permanently remove the songs and their files from your library",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         },
                         leadingContent = {
-                            Icon(Icons.Default.Delete, null,
-                                tint = MaterialTheme.colorScheme.error)
+                            Icon(
+                                Icons.Default.Delete, null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
                         }
                     )
                 }
@@ -652,11 +702,11 @@ fun PlaylistDetailScreen(
         AlertDialog(
             onDismissRequest = { showConfirmRemoveSelected = false },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Remove from playlist?") },
-            text    = {
+            title = { Text("Remove from playlist?") },
+            text = {
                 Text(
                     "${selectedIds.size} song${if (selectedIds.size == 1) "" else "s"} will be " +
-                    "removed from this playlist. They stay in your library."
+                            "removed from this playlist. They stay in your library."
                 )
             },
             confirmButton = {
@@ -667,7 +717,7 @@ fun PlaylistDetailScreen(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) { Text("Remove") }
             },
@@ -681,11 +731,11 @@ fun PlaylistDetailScreen(
         AlertDialog(
             onDismissRequest = { showConfirmDeleteSelected = false },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Delete selected songs?") },
-            text    = {
+            title = { Text("Delete selected songs?") },
+            text = {
                 Text(
                     "${selectedIds.size} song${if (selectedIds.size == 1) "" else "s"} will be " +
-                    "permanently removed from your library and their files deleted."
+                            "permanently removed from your library and their files deleted."
                 )
             },
             confirmButton = {
@@ -696,7 +746,7 @@ fun PlaylistDetailScreen(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) { Text("Delete") }
             },
@@ -714,8 +764,8 @@ fun PlaylistDetailScreen(
                 pendingRemoveSong = null
             },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Remove from playlist?") },
-            text    = {
+            title = { Text("Remove from playlist?") },
+            text = {
                 Text("\"${song.title}\" will be removed from this playlist. It stays in your library.")
             },
             confirmButton = {
@@ -727,7 +777,7 @@ fun PlaylistDetailScreen(
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) { Text("Remove") }
             },
@@ -759,18 +809,25 @@ private fun PlaylistSongItem(
     onRemoveFromQueue: () -> Unit,
     onToggleSelect: () -> Unit,
     onShareAsLink: () -> Unit,
+    onShareAsLinkOnPlatform: (String) -> Unit,
+    shareLinkState: MainViewModel.ShareLinkState,
     onRemove: () -> Unit,
     onDelete: () -> Unit
 ) {
     val context = LocalContext.current
-    val haptic  = LocalHapticFeedback.current
+    val haptic = LocalHapticFeedback.current
     var showMenu by remember { mutableStateOf(false) }
     var showConfirmDelete by remember { mutableStateOf(false) }
+    var showSharePlatformDialog by remember { mutableStateOf(false) }
 
     // In selection mode the blue highlight follows the selection (not the
     // currently-playing song); outside selection it marks the current song.
     val bgAlpha by animateFloatAsState(
-        if (inSelection) { if (isSelected) 0.18f else 0f } else { if (isCurrent) 0.12f else 0f },
+        if (inSelection) {
+            if (isSelected) 0.18f else 0f
+        } else {
+            if (isCurrent) 0.12f else 0f
+        },
         label = "plSongBg"
     )
 
@@ -786,16 +843,20 @@ private fun PlaylistSongItem(
             ),
         headlineContent = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                Text(
+                    song.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     fontWeight = if (!inSelection && isCurrent) FontWeight.Bold else FontWeight.Normal,
                     color = if (!inSelection && isCurrent) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f, fill = false))
+                    modifier = Modifier.weight(1f, fill = false)
+                )
                 if (isInQueue && !isCurrent && isDragging) {
                     Spacer(Modifier.width(8.dp))
-                    Icon(Icons.Default.Queue, null,
+                    Icon(
+                        Icons.Default.Queue, null,
                         modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                    )
                 }
             }
         },
@@ -804,17 +865,23 @@ private fun PlaylistSongItem(
             if (inSelection) {
                 Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
             } else {
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
-                    contentAlignment = Alignment.Center) {
+                Box(
+                    Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
                     if (song.thumbnailUrl != null) {
-                        AsyncImage(model = song.thumbnailUrl, contentDescription = null,
-                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        AsyncImage(
+                            model = song.thumbnailUrl, contentDescription = null,
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
+                        )
                     } else {
                         Icon(Icons.Default.MusicNote, null)
                     }
                     if (isCurrent) {
-                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
-                            contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Icon(
                                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 null, tint = MaterialTheme.colorScheme.onPrimary
@@ -868,24 +935,32 @@ private fun PlaylistSongItem(
                                 DropdownMenuItem(
                                     text = { Text("Share link") },
                                     leadingIcon = { Icon(Icons.Default.Link, null) },
-                                    onClick = { onShareAsLink(); showMenu = false }
+                                    onClick = { showMenu = false; showSharePlatformDialog = true }
                                 )
                             }
                             HorizontalDivider()
                             DropdownMenuItem(
-                                text = { Text("Remove from Playlist",
-                                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)) },
+                                text = {
+                                    Text(
+                                        "Remove from Playlist",
+                                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+                                    )
+                                },
                                 leadingIcon = {
-                                    Icon(Icons.Default.RemoveCircleOutline, null,
-                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f))
+                                    Icon(
+                                        Icons.Default.RemoveCircleOutline, null,
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f)
+                                    )
                                 },
                                 onClick = { onRemove(); showMenu = false }
                             )
                             DropdownMenuItem(
                                 text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                                 leadingIcon = {
-                                    Icon(Icons.Default.Delete, null,
-                                        tint = MaterialTheme.colorScheme.error)
+                                    Icon(
+                                        Icons.Default.Delete, null,
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
                                 },
                                 onClick = { showMenu = false; showConfirmDelete = true }
                             )
@@ -907,8 +982,8 @@ private fun PlaylistSongItem(
         AlertDialog(
             onDismissRequest = { showConfirmDelete = false },
             containerColor = MaterialTheme.colorScheme.background,
-            title   = { Text("Delete song?") },
-            text    = {
+            title = { Text("Delete song?") },
+            text = {
                 Text("\"${song.title}\" will be permanently removed from your library and its file deleted.")
             },
             confirmButton = {
@@ -916,13 +991,29 @@ private fun PlaylistSongItem(
                     onClick = { onDelete(); showConfirmDelete = false },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor   = MaterialTheme.colorScheme.onErrorContainer
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
                     )
                 ) { Text("Delete") }
             },
             dismissButton = {
                 OutlinedButton(onClick = { showConfirmDelete = false }) { Text("Cancel") }
             }
+        )
+    }
+
+    if (showSharePlatformDialog) {
+        ShareLinkPlatformDialog(
+            songTitle = song.title,
+            state = shareLinkState,
+            onPickPlatform = { key ->
+                showSharePlatformDialog = false
+                onShareAsLinkOnPlatform(key)
+            },
+            onPickOriginal = {
+                showSharePlatformDialog = false
+                onShareAsLink()
+            },
+            onDismiss = { showSharePlatformDialog = false }
         )
     }
 }
