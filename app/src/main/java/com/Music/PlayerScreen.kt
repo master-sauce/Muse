@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.animation.core.animateDpAsState
@@ -25,14 +27,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -646,9 +651,19 @@ fun PlayerContent(
                     Spacer(Modifier.height(20.dp))
 
                     // ── Seek bar ─────────────────────────────────────────────
+                    // Custom scrubbing (YouTube-Music style):
+                    //  - thumb fades out the moment the user grabs the bar
+                    //  - a floating time bubble fades in above the touch point
+                    //  - dragging UP makes scrubbing finer (smaller per-pixel
+                    //    step), dragging DOWN makes it coarser
                     Column(Modifier.fillMaxWidth()) {
                         var sliderPosition by remember { mutableFloatStateOf(0f) }
                         var isDragging by remember { mutableStateOf(false) }
+                        // Vertical drag offset (px, negative = up). Drives the
+                        // precision factor + bubble scale.
+                        var dragDy by remember { mutableFloatStateOf(0f) }
+                        var trackWidth by remember { mutableFloatStateOf(1f) }
+                        val haptic = LocalHapticFeedback.current
 
                         LaunchedEffect(progress) {
                             if (!isDragging) {
@@ -656,23 +671,154 @@ fun PlayerContent(
                             }
                         }
 
-                        Slider(
-                            value = sliderPosition,
-                            onValueChange = {
-                                isDragging = true
-                                sliderPosition = it
-                            },
-                            onValueChangeFinished = {
-                                viewModel.seekTo(sliderPosition)
-                                isDragging = false
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = MaterialTheme.colorScheme.primary,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
-                            )
+                        val trackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
+                        val progressColor = MaterialTheme.colorScheme.primary
+                        val thumbColor = MaterialTheme.colorScheme.primary
+                        val trackHeight = 6.dp
+                        val thumbSize = 26.dp
+
+                        // Thumb fades + shrinks out while dragging; bubble grows.
+                        val thumbAlpha by animateFloatAsState(
+                            if (isDragging) 0f else 1f, label = "seekThumbAlpha"
                         )
+                        // 0 when not dragging, ramps with upward drag.
+                        val bubbleProgress by animateFloatAsState(
+                            if (isDragging) 1f else 0f, label = "seekBubble"
+                        )
+
+
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .onSizeChanged { trackWidth = it.width.toFloat().coerceAtLeast(1f) },
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            // Rounded inactive track
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(trackHeight)
+                                    .clip(RoundedCornerShape(trackHeight / 2))
+                                    .background(trackColor)
+                            )
+                            // Rounded active track
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(sliderPosition.coerceIn(0f, 1f))
+                                    .height(trackHeight)
+                                    .clip(RoundedCornerShape(trackHeight / 2))
+                                    .background(progressColor)
+                            )
+                            // Circular thumb — fades + shrinks out on drag.
+                            Box(
+                                Modifier
+                                    .fillMaxWidth(sliderPosition.coerceIn(0f, 1f))
+                                    .widthIn(min = thumbSize),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(thumbSize)
+                                        .alpha(thumbAlpha)
+                                        .scale(thumbAlpha)
+                                        .clip(CircleShape)
+                                        .background(thumbColor)
+                                )
+                            }
+                            // Tap + drag surface over the whole track.
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .pointerInput(Unit) {
+                                        // Tap anywhere on the track to jump there.
+                                        detectTapGestures { offset ->
+                                            sliderPosition =
+                                                (offset.x / trackWidth).coerceIn(0f, 1f)
+                                            viewModel.seekTo(sliderPosition)
+                                        }
+                                    }
+                                    .pointerInput(Unit) {
+                                        detectDragGestures(
+                                            onDragStart = {
+                                                isDragging = true
+                                                dragDy = 0f
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            },
+                                            onDragEnd = {
+                                                viewModel.seekTo(sliderPosition)
+                                                isDragging = false
+                                                dragDy = 0f
+                                            },
+                                            onDragCancel = {
+                                                viewModel.seekTo(sliderPosition)
+                                                isDragging = false
+                                                dragDy = 0f
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                dragDy += dragAmount.y
+                                                // Compute precision inline from the
+                                                // LIVE dragDy — reading the `precision`
+                                                // val here would use a stale value
+                                                // captured when pointerInput started.
+                                                // Clamp to a small positive floor so
+                                                // holding far up never inverts the
+                                                // direction (a negative factor would
+                                                // flip left/right).
+                                                val norm = (-dragDy / 900f).coerceIn(-1f, 4f)
+                                                val prec = (1f - norm * 0.95f).coerceIn(0.04f, 1.95f)
+                                                val dx = dragAmount.x / trackWidth
+                                                sliderPosition =
+                                                    (sliderPosition + dx * prec).coerceIn(0f, 1f)
+                                                change.consume()
+                                            }
+                                        )
+                                    }
+                            )
+                            // Floating time bubble, centred on the thumb and
+                            // clamped so it never runs off either screen edge.
+                            if (bubbleProgress > 0.01f) {
+                                // Bubble grows the further up the user holds, so
+                                // the finer precision is visible on screen.
+                                val bubbleScale = 1f + (-dragDy / 500f).coerceIn(0f, 0.8f)
+                                BoxWithConstraints(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .offset(y = (-44).dp)
+                                ) {
+                                    val maxPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+                                    val bubbleW = 64.dp
+                                    val halfPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+                                        (bubbleW / 2).toPx()
+                                    }
+                                    val cx = (sliderPosition.coerceIn(0f, 1f) * maxPx)
+                                        .coerceIn(halfPx, (maxPx - halfPx).coerceAtLeast(halfPx))
+                                    Box(
+                                        Modifier
+                                            .offset { androidx.compose.ui.unit.IntOffset((cx - halfPx).toInt(), 0) }
+                                            .width(bubbleW),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                                            shadowElevation = 6.dp,
+                                            modifier = Modifier
+                                                .alpha(bubbleProgress)
+                                                .scale(bubbleScale)
+                                        ) {
+                                            Text(
+                                                (sliderPosition * duration).toLong().toTimeString(),
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             val displayPos = if (isDragging) (sliderPosition * duration).toLong() else position
                             Text(
