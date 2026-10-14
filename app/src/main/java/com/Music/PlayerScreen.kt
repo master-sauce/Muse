@@ -709,21 +709,36 @@ fun PlayerContent(
                                     .clip(RoundedCornerShape(trackHeight / 2))
                                     .background(progressColor)
                             )
-                            // Circular thumb — fades + shrinks out on drag.
-                            Box(
-                                Modifier
-                                    .fillMaxWidth(sliderPosition.coerceIn(0f, 1f))
-                                    .widthIn(min = thumbSize),
-                                contentAlignment = Alignment.CenterEnd
-                            ) {
+                            // Thumb + bubble share the same centre-x via
+                            // BoxWithConstraints + offset, so they can never drift
+                            // apart regardless of the slider fraction.
+                            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                                val density = androidx.compose.ui.platform.LocalDensity.current
+                                val maxPx = with(density) { maxWidth.toPx() }
+                                val thumbRadiusPx = with(density) { (thumbSize / 2).toPx() }
+                                // Centre of the circle = fraction * width.
+                                val centerX = (sliderPosition.coerceIn(0f, 1f) * maxPx)
+                                    .coerceIn(thumbRadiusPx, (maxPx - thumbRadiusPx).coerceAtLeast(thumbRadiusPx))
+                                // Circular thumb — fades + shrinks out on drag.
                                 Box(
                                     Modifier
-                                        .size(thumbSize)
-                                        .alpha(thumbAlpha)
-                                        .scale(thumbAlpha)
-                                        .clip(CircleShape)
-                                        .background(thumbColor)
-                                )
+                                        .offset {
+                                            androidx.compose.ui.unit.IntOffset(
+                                                (centerX - thumbRadiusPx).toInt(), 0
+                                            )
+                                        }
+                                        .width(thumbSize)
+                                        .height(thumbSize)
+                                ) {
+                                    Box(
+                                        Modifier
+                                            .size(thumbSize)
+                                            .alpha(thumbAlpha)
+                                            .scale(thumbAlpha)
+                                            .clip(CircleShape)
+                                            .background(thumbColor)
+                                    )
+                                }
                             }
                             // Tap + drag surface over the whole track.
                             Box(
@@ -778,24 +793,32 @@ fun PlayerContent(
                             // Floating time bubble, centred on the thumb and
                             // clamped so it never runs off either screen edge.
                             if (bubbleProgress > 0.01f) {
-                                // Bubble grows the further up the user holds, so
-                                // the finer precision is visible on screen.
                                 val bubbleScale = 1f + (-dragDy / 500f).coerceIn(0f, 0.8f)
                                 BoxWithConstraints(
                                     Modifier
                                         .fillMaxWidth()
                                         .offset(y = (-44).dp)
                                 ) {
-                                    val maxPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+                                    val density = androidx.compose.ui.platform.LocalDensity.current
+                                    val maxPx = with(density) { maxWidth.toPx() }
                                     val bubbleW = 64.dp
-                                    val halfPx = with(androidx.compose.ui.platform.LocalDensity.current) {
-                                        (bubbleW / 2).toPx()
-                                    }
-                                    val cx = (sliderPosition.coerceIn(0f, 1f) * maxPx)
-                                        .coerceIn(halfPx, (maxPx - halfPx).coerceAtLeast(halfPx))
+                                    val halfBubblePx = with(density) { (bubbleW / 2).toPx() }
+                                    val thumbRadiusPx = with(density) { (thumbSize / 2).toPx() }
+                                    // Same centre-x as the thumb above.
+                                    val centerX = (sliderPosition.coerceIn(0f, 1f) * maxPx)
+                                        .coerceIn(thumbRadiusPx, (maxPx - thumbRadiusPx).coerceAtLeast(thumbRadiusPx))
+                                    val cx = centerX.coerceIn(
+                                        halfBubblePx,
+                                        (maxPx - halfBubblePx).coerceAtLeast(halfBubblePx)
+                                    )
                                     Box(
                                         Modifier
-                                            .offset { androidx.compose.ui.unit.IntOffset((cx - halfPx).toInt(), 0) }
+                                            .offset {
+                                                androidx.compose.ui.unit.IntOffset(
+                                                    (cx - halfBubblePx).toInt(),
+                                                    0
+                                                )
+                                            }
                                             .width(bubbleW),
                                         contentAlignment = Alignment.Center
                                     ) {
