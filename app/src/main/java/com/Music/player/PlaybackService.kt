@@ -1,5 +1,6 @@
 package com.Music.player
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,6 +14,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.Music.MainActivity
 import com.Music.data.local.SongEntity
 import com.Music.downloader.DownloadState
 import kotlinx.coroutines.CoroutineScope
@@ -53,7 +55,9 @@ class PlaybackService : MediaSessionService() {
             .setAudioAttributes(audioAttributes, /* handleAudioFocus= */ true)
             .build()
 
-        mediaSession = MediaSession.Builder(this, player).build()
+        mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(buildSessionActivity())
+            .build()
 
         // Restore the last played song immediately so the media notification
         // appears on launch before the Activity's ViewModel even connects.
@@ -93,6 +97,24 @@ class PlaybackService : MediaSessionService() {
                 .setArtworkUri(s.thumbnailUrl?.let { Uri.parse(it) })
                 .build()
         ).build()
+
+    // Tapping the media notification / lock-screen player opens Muse. Without
+    // a session activity media3 has nothing to launch, so the tap was dead.
+    // SINGLE_TOP + CLEAR_TOP reuses the running Activity instead of stacking a
+    // second copy on top of the existing task.
+    private fun buildSessionActivity(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            action = Intent.ACTION_MAIN
+            addCategory(Intent.CATEGORY_LAUNCHER)
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            /* requestCode = */ 0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 

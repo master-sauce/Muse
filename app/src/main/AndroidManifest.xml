@@ -26,6 +26,7 @@
     <application
         android:name=".MuseApp"
         android:allowBackup="true"
+        android:appCategory="audio"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -36,13 +37,28 @@
         android:extractNativeLibs="true"
         android:requestLegacyExternalStorage="true">
 
-        <!-- Playback service -->
+        <!-- Playback service.
+
+             Registered twice on purpose:
+             · androidx.media3.session.MediaSessionService — the modern
+               MediaController / MediaSession path used inside the app.
+             · android.media.browse.MediaBrowserService — the legacy
+               MediaBrowserService entry point the OS, Android Auto, Wear OS,
+               Assistant and other media apps use to discover Muse as a
+               music app. MediaSessionService.onBind() serves this action
+               itself (returns the session's legacy browser binder).
+
+             DEFAULT category is required by the system's media service
+             lookup; without it the service is never listed. -->
         <service
             android:name=".player.PlaybackService"
             android:exported="true"
+            android:label="@string/app_name"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </service>
 
@@ -79,6 +95,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Muse"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:windowSoftInputMode="adjustResize">
