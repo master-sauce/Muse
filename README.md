@@ -89,6 +89,61 @@ storage — but only a granted folder is user-editable.
 
 ---
 
+## Migration & Fresh Install
+
+### Fresh install (nothing on the device yet)
+1. Install, open Muse.
+2. The folder picker opens at `Download` → create/pick `Muse` → **Use this folder** → allow.
+3. Done. Downloads land in that folder from the first song on, each with its
+   `.json` sidecar and a `.m3u8` per playlist.
+
+### Fresh install over an existing backup folder (new phone / reinstall / cleared data)
+1. Open Muse and pick **the same** `Download/Muse` folder (not `Download` — the
+   scan is not recursive).
+2. Press **Sync folder** in **Add Music → Folder → Library folder**.
+3. Wait for the ongoing notification (`Moving songs` → `Reading folder` →
+   `Checking playlists` → disappears). Muse adopts every audio file, reads its
+   `.json`, recreates the playlists from the records and rewrites the `.m3u8`
+   files. Nothing else to do.
+4. If a playlist still looks short, press **Restore playlists from files**
+   (forced rebuild from the `.json` records).
+
+### Updating from a build that stored songs in app-private storage
+1. Sign with the **same key** and install over the top (do **not** uninstall —
+   that wipes the database the migration reads from).
+2. Open Muse → pick `Download/Muse` when asked (or use Change).
+3. Press **Sync folder**. The button shows `N songs are still in app storage`;
+   the notification tracks the move. Each song is copied first, then its row is
+   repointed and the private copy deleted — interrupting it is safe, the pass
+   resumes next time.
+4. Keep the app in the foreground for the first run if you can: a file copied
+   at the moment the process dies can land truncated (the next sync repairs or
+   you delete that one file).
+
+### What survives what
+
+| | In-place update (same key) | Reinstall / clear data |
+|---|---|---|
+| Songs, `.json` metadata, playlists | ✅ | ✅ rebuilt from the folder |
+| Playlist order & membership | ✅ | ✅ from `.m3u8` / `.json` |
+| Export-links data (`sourceUrl`) | ✅ | ✅ from `.json` |
+| Newest/Oldest sort (`createdAt`) | ✅ | ✅ from `.json` |
+| Custom drag order (songs, playlist list) | ✅ | ❌ reset |
+| Last played / shuffle / auto-add playlist | ✅ | ❌ |
+
+### Rules of thumb
+- `Sync folder` = "make the app match the folder" (deletions included).
+  `Restore playlists from files` = "rebuild from the `.json` records" (additive).
+- Edit the folder however you like, then Sync. Deleting a song file removes it
+  from the library **and** from every playlist.
+- Removing a song from an `.m3u8` removes it on the next sync; Muse also clears
+  that name from the song's `.json`, so a later restore won't bring it back.
+- Never copy songs into `Download/Muse` by hand while a migration is running.
+- Keep the `.json` files — they hold the metadata and playlist membership; the
+  audio alone loses titles, links and playlists.
+
+---
+
 ## Permissions
 | Permission | Purpose |
 |-----------|---------|
@@ -97,7 +152,8 @@ storage — but only a granted folder is user-editable.
 | `READ_EXTERNAL_STORAGE` (≤ API 32) | Legacy audio access |
 | `WRITE_EXTERNAL_STORAGE` (≤ API 28) | Store downloads |
 | `FOREGROUND_SERVICE_MEDIA_PLAYBACK` | Background playback |
-| `POST_NOTIFICATIONS` (API 33+) | Show playback notification |
+| `FOREGROUND_SERVICE_DATA_SYNC` | Downloads, folder sync and bulk library jobs keep running with the app closed |
+| `POST_NOTIFICATIONS` (API 33+) | Show playback / progress notifications |
 
 ---
 

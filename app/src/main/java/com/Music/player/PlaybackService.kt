@@ -43,6 +43,7 @@ class PlaybackService : MediaSessionService() {    private var mediaSession: Med
 
     override fun onCreate() {
         super.onCreate()
+        val t0 = android.os.SystemClock.elapsedRealtime()
 
         // AudioAttributes.DEFAULT has USAGE_UNKNOWN — breaks audio focus
         val audioAttributes = AudioAttributes.Builder()
@@ -58,6 +59,7 @@ class PlaybackService : MediaSessionService() {    private var mediaSession: Med
             .setSessionActivity(buildSessionActivity())
             .build()
 
+        android.util.Log.d("Startup", "PlaybackService player+session ready in ${android.os.SystemClock.elapsedRealtime() - t0}ms")
         // Restore the last played song immediately so the media notification
         // appears on launch before the Activity's ViewModel even connects.
         // Without this, there's a gap between the app opening and the
@@ -79,6 +81,10 @@ class PlaybackService : MediaSessionService() {    private var mediaSession: Med
                         p.prepare()
                     }
                 }
+                android.util.Log.d(
+                    "Startup",
+                    "PlaybackService eager restore done in ${android.os.SystemClock.elapsedRealtime() - t0}ms"
+                )
             } catch (_: Exception) {
                 // Non-critical: if this fails, the ViewModel will still
                 // restore the session when it connects.

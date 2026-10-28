@@ -45,6 +45,7 @@ class DownloadManager(private val context: Context) {
         processId: String,
         onProgress: (Float, Long) -> Unit
     ): File = withContext(Dispatchers.IO) {
+        YtdlInit.await()
         // yt-dlp can only write to a real filesystem path, so it stages into
         // the app cache; MusicRepository then moves the finished file into the
         // user-visible library folder (Download/Muse).
@@ -96,6 +97,7 @@ class DownloadManager(private val context: Context) {
         processId: String,
         maxSeconds: Int = 30
     ): File = withContext(Dispatchers.IO) {
+        YtdlInit.await()
         val previewDir = File(context.cacheDir, "previews")
         if (!previewDir.exists()) previewDir.mkdirs()
 
@@ -149,6 +151,7 @@ class DownloadManager(private val context: Context) {
      * be parsed (the caller treats null as "use fallback values").
      */
     suspend fun getVideoInfo(url: String, processId: String): VideoInfo? = withContext(Dispatchers.IO) {
+        YtdlInit.await()
         val request = YoutubeDLRequest(url)
         request.addOption("--no-playlist")
         request.addOption("--dump-json")
@@ -185,6 +188,7 @@ class DownloadManager(private val context: Context) {
      * `watch?v=<id>&list=<listId>&index=<n>` URL.
      */
     suspend fun fetchPlaylistEntries(playlistUrl: String): List<PlaylistEntry> = withContext(Dispatchers.IO) {
+        YtdlInit.await()
         val playlistId = extractPlaylistId(playlistUrl)
             ?: throw Exception("Invalid playlist URL: missing list= parameter")
 
@@ -226,6 +230,7 @@ class DownloadManager(private val context: Context) {
      */
     suspend fun searchYouTube(query: String, limit: Int = 20): List<SearchResult> =
         withContext(Dispatchers.IO) {
+            YtdlInit.await()
             val trimmed = query.trim()
             if (trimmed.isEmpty()) return@withContext emptyList()
 

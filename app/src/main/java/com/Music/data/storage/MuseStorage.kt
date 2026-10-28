@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -42,6 +43,11 @@ object MuseStorage {
     private const val MIME_M3U = "audio/x-mpegurl"
 
     private lateinit var appContext: Context
+
+    /** Background work (index building) that must never touch the UI thread. */
+    private val bgScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
 
     @Volatile
     private var treeUri: Uri? = null
@@ -131,37 +137,91 @@ object MuseStorage {
     // ── Listing ─────────────────────────────────────────────────────────────
 
     /**
-     * Folder children indexed by display name.
+     * Folder children indexed by display name, built from a SINGLE provider
+     * query.
      *
-     * `DocumentFile.findFile()` re-queries the whole directory for every lookup;
-     * with a few thousand files that turns any per-song loop into O(n²) and
-     * makes the migration look hung. One listing + in-place updates instead.
+     * `DocumentFile.findFile()` re-queries the directory per lookup, and even
+     * `doc.name` is a Binder round-trip per child — walking 2600 files that way
+     * cost seconds of main-thread time at start-up. One cursor for the whole
+     * directory, then pure in-memory lookups.
      */
     private var childIndex: MutableMap<String, DocumentFile>? = null
+    private var mimeIndex: MutableMap<String, String?>? = null
 
     fun invalidateIndex() {
         childIndex = null
+        mimeIndex = null
+    }
+
+    /**
+     * Build the folder index ahead of first use (call from a background thread).
+     * The very first lookup otherwise pays one large provider query on whatever
+     * thread touches it first — usually the main thread during playback setup.
+     */
+    fun warmIndex() {
+        if (!hasAccess()) return
+        runCatching { index() }
     }
 
     private fun index(): MutableMap<String, DocumentFile> {
         childIndex?.let { return it }
         val map = HashMap<String, DocumentFile>()
-        runCatching { rootOrNull()?.listFiles() }.getOrNull()?.forEach { doc ->
-            val name = doc.name ?: return@forEach
-            map[name] = doc
+        val mimes = HashMap<String, String?>()
+        val building = map
+
+        val rootUri = rootOrNull()?.uri
+        val treeUriSafe = treeUri
+        if (rootUri != null && treeUriSafe != null) {
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                rootUri, DocumentsContract.getTreeDocumentId(rootUri)
+            )
+            val projection = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE
+            )
+            runCatching {
+                appContext.contentResolver.query(childrenUri, projection, null, null, null)
+                    ?.use { cursor ->
+                        while (cursor.moveToNext()) {
+                            val docId = cursor.getString(0) ?: continue
+                            val name = cursor.getString(1) ?: continue
+                            val mime = if (cursor.isNull(2)) null else cursor.getString(2)
+                            val docUri = DocumentsContract.buildDocumentUriUsingTree(
+                                treeUriSafe, docId
+                            )
+                            building[name] =
+                                DocumentFile.fromSingleUri(appContext, docUri) ?: continue
+                            mimes[name] = mime
+                        }
+                    }
+            }
         }
+
         childIndex = map
+        mimeIndex = mimes
         return map
     }
+
+    /** Cached MIME type for a child, avoiding a provider query per file. */
+    private fun cachedMime(name: String, doc: DocumentFile): String? =
+        mimeIndex?.get(name) ?: runCatching { doc.type }.getOrNull()
 
     fun list(): List<DocumentFile> = index().values.toList()
 
     /** Audio/video documents directly inside the library folder. */
-    fun listAudio(): List<DocumentFile> = list().filter { doc ->
-        if (!doc.isFile) return@filter false
-        val mime = doc.type
-        if (mime != null && (mime.startsWith("audio/") || mime.startsWith("video/"))) true
-        else isMediaName(doc.name)
+    fun listAudio(): List<DocumentFile> {
+        val idx = index()
+        val mimes = mimeIndex
+        return idx.entries.mapNotNull { (name, doc) ->
+            val mime = mimes?.get(name) ?: cachedMime(name, doc)
+            val isMedia = if (mime != null) {
+                mime.startsWith("audio/") || mime.startsWith("video/")
+            } else {
+                isMediaName(name)
+            }
+            doc.takeIf { isMedia }
+        }
     }
 
     fun find(name: String): DocumentFile? = index()[name]
@@ -324,9 +384,42 @@ object MuseStorage {
         appContext.contentResolver.openInputStream(uri)
     }.getOrNull()
 
-    fun exists(uri: Uri): Boolean = runCatching {
-        appContext.contentResolver.openInputStream(uri)?.use { true } ?: false
-    }.getOrElse { false }
+    fun exists(uri: Uri): Boolean {
+        // Fast path: answer from the folder index (one listing per process)
+        // using the document id, instead of a Binder round-trip per song —
+        // filtering a 1300-song library used to cost ~4.6s of main-thread time.
+        val name = fastName(uri)
+        if (name != null) {
+            val built = childIndex
+            if (built != null) return built.containsKey(name)
+            if (isMainThread()) {
+                // Never pay the provider query on the UI thread: assume the
+                // file is there and build the index in the background. Missing
+                // files surface as playback errors, exactly as before.
+                bgScope.launch { runCatching { index() } }
+                return true
+            }
+            return index().containsKey(name)
+        }
+        return runCatching {
+            appContext.contentResolver.openInputStream(uri)?.use { true } ?: false
+        }.getOrElse { false }
+    }
+
+    private fun isMainThread(): Boolean =
+        android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+
+    /**
+     * Display name derived from the document id without querying the provider.
+     * ExternalStorageProvider ids are real paths (`primary:Download/Muse/x.mp3`);
+     * opaque ids return null so callers fall back to a provider query.
+     */
+    private fun fastName(uri: Uri): String? {
+        val segment = uri.lastPathSegment ?: return null
+        val decoded = Uri.decode(segment)
+        if (!decoded.contains('/')) return null
+        return decoded.substringAfterLast('/').takeIf { it.isNotBlank() }
+    }
 
     fun delete(uri: Uri): Boolean {
         val ok = runCatching {

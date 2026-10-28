@@ -52,6 +52,12 @@ object LibraryTasks {
 
     fun isRunning(): Boolean = _progress.value != null
 
+    /** Pre-build the library folder index off the main thread. */
+    fun warmFolderIndex() {
+        if (!this::appContext.isInitialized) return
+        scope.launch { runCatching { MuseStorage.warmIndex() } }
+    }
+
     fun titleOrDefault(): String = _progress.value?.title ?: "Updating library"
 
     /** Cancel the running job after the item currently being handled. */

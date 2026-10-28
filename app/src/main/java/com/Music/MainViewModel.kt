@@ -134,6 +134,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // older than this are wiped on ViewModel init so cacheDir/previews never
     // grows unbounded even if dismiss/crash paths leak files.
     init {
+        val initT0 = android.os.SystemClock.elapsedRealtime()
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val dir = File(getApplication<Application>().cacheDir, "previews")
@@ -187,8 +188,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         }
+        android.util.Log.d(
+            "Startup",
+            "MainViewModel.init done in ${android.os.SystemClock.elapsedRealtime() - initT0}ms"
+        )
     }
-
     /** Refresh the "N songs still in app storage" counter shown in the UI. */
     private fun refreshSongsAwaitingMigration() {
         // Off-main and never inline: the DB read suspends, and running the body
@@ -593,7 +597,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Eagerly restore the last played song so the mini player
         // appears immediately on app launch, before the MediaController
         // connects and the full session restore completes.
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val lastId = repository.getLastPlayedSongId()
             if (lastId != null) {
                 _songs.filter { it.isNotEmpty() }.first()
@@ -641,7 +645,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             // no longer contains the song (user deleted it).
                             if (pl.any { it.id == lastId }) pl else _songs.value
                         } else _songs.value
-                        val items = sourceSongs.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
+                        val items = withContext(Dispatchers.IO) {
+                            sourceSongs.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
+                        }
                         val startIndex = items.indexOfFirst { it.mediaId == lastId }.coerceAtLeast(0)
                         if (items.isNotEmpty()) {
                             // Reflect the restored context so the player's
@@ -699,8 +705,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } else _songs.value
                         _playingPlaylistId.value =
                             if (sourceSongs === _songs.value) null else lastPlaylistId
-                        val items = sourceSongs.filter { SongMedia.exists(it) }
-                            .map { buildMediaItem(it) }
+                        val items = withContext(Dispatchers.IO) {
+                            sourceSongs.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
+                        }
                         val startIndex = items.indexOfFirst { it.mediaId == currentMediaId }
                             .coerceAtLeast(0)
                         if (items.isNotEmpty()) {
@@ -1376,6 +1383,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Playing from the Library, not a playlist.
         _playingPlaylistId.value = null
         val player = controller ?: return
+        // O(1) per song thanks to MuseStorage's folder index.
         val items = _songs.value.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
 
@@ -1762,6 +1770,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         shuffleRestoreOnDrain = -1
         _playingPlaylistId.value = fromPlaylistId
         val player = controller ?: return
+        // O(1) per song thanks to MuseStorage's folder index.
         val items = songs.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
         // Resolve the effective shuffle state: the explicit [shuffle] arg

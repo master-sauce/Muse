@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.collectLatest
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val t0 = android.os.SystemClock.elapsedRealtime()
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(
@@ -42,6 +43,16 @@ class MainActivity : ComponentActivity() {
                     MusicApp()
                 }
             }
+        }
+        android.util.Log.d(
+            "Startup",
+            "MainActivity.setContent returned in ${android.os.SystemClock.elapsedRealtime() - t0}ms"
+        )
+        window.decorView.post {
+            android.util.Log.d(
+                "Startup",
+                "First frame after ${android.os.SystemClock.elapsedRealtime() - t0}ms"
+            )
         }
     }
 }
