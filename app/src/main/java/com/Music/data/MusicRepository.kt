@@ -9,6 +9,10 @@ import android.util.Log
 import com.Music.data.local.*
 import com.Music.data.remote.PlatformsService
 import com.Music.data.remote.tempRoutingToken
+import com.Music.data.storage.LibrarySync
+import com.Music.data.storage.MuseStorage
+import com.Music.data.storage.SongMedia
+import com.Music.data.storage.SyncResult
 import com.Music.downloader.DownloadManager
 import com.Music.downloader.PlaylistEntry
 import com.Music.downloader.SearchResult
@@ -23,7 +27,8 @@ class MusicRepository(
     private val playlistDao: PlaylistDao,
     private val platformsService: PlatformsService,
     private val downloadManager: DownloadManager,
-    private val context: Context
+    private val context: Context,
+    private val librarySync: LibrarySync
 ) {
     private val prefs = context.getSharedPreferences("muse_prefs", Context.MODE_PRIVATE)
 
@@ -95,28 +100,63 @@ class MusicRepository(
 
         info?.title?.let { onTitleRetrieved(it) }
 
-        val file = downloadManager.downloadSong(finalUrl, taskId, processId) { p, _ -> onProgress(p) }
+        val tempFile = downloadManager.downloadSong(finalUrl, taskId, processId) { p, _ -> onProgress(p) }
+
+        val songId = info?.id ?: System.currentTimeMillis().toString()
+        val title = info?.title ?: tempFile.nameWithoutExtension
+        val artist = metaArtist ?: info?.uploader ?: "Unknown Artist"
+        val extension = tempFile.extension.ifBlank { "mp3" }
+        val displayName = librarySync.buildFileName(artist, title, songId, extension)
+
+        // Library files go into the user-visible folder when one is granted;
+        // otherwise fall back to app-private storage so downloads never fail.
+        val storedUri = if (MuseStorage.hasAccess()) {
+            MuseStorage.importFile(tempFile, displayName)
+        } else null
+        val filePath = when {
+            storedUri != null -> {
+                tempFile.delete()
+                storedUri.toString()
+            }
+            else -> {
+                val dir = File(context.getExternalFilesDir(null), "downloads").also { it.mkdirs() }
+                val dest = File(dir, displayName)
+                tempFile.copyTo(dest, overwrite = true)
+                tempFile.delete()
+                dest.absolutePath
+            }
+        }
 
         // Insert at the TOP of the user's custom order: bump every existing
         // song's sortOrder up by 1, then place this one at position 0 so it
         // shows first in CUSTOM mode. createdAt still drives Newest / Oldest.
-        val songId = info?.id ?: System.currentTimeMillis().toString()
         songDao.shiftAllSortOrders()
-        songDao.insertSong(
-            SongEntity(
-                id = songId,
-                title = info?.title ?: file.nameWithoutExtension,
-                artist = metaArtist ?: info?.uploader ?: "Unknown Artist",
-                filePath = file.absolutePath,
-                duration = info?.duration?.times(1000L) ?: 0L,
-                thumbnailUrl = metaThumbnail ?: info?.thumbnail,
-                sourceUrl = url,
-                sortOrder = 0,
-                createdAt = System.currentTimeMillis()
-            )
+        val song = SongEntity(
+            id = songId,
+            title = title,
+            artist = artist,
+            filePath = filePath,
+            duration = info?.duration?.times(1000L) ?: 0L,
+            thumbnailUrl = metaThumbnail ?: info?.thumbnail,
+            sourceUrl = url,
+            sortOrder = 0,
+            createdAt = System.currentTimeMillis()
         )
+        songDao.insertSong(song)
+        librarySync.writeSongSidecar(song)
         songId
     }
+
+    // ── Library folder (user-visible Download/Muse) ─────────────────────────
+
+    suspend fun syncLibraryFromDisk(showProgress: Boolean = false): SyncResult = withContext(Dispatchers.IO) {
+        librarySync.syncFromDisk(showProgress)
+    }
+
+    /** Current library folder name for the UI ("Muse" until one is granted). */
+    fun storageFolderName(): String = MuseStorage.folderName()
+
+    fun hasStorageAccess(): Boolean = MuseStorage.hasAccess()
 
     // ── Playlist import ────────────────────────────────────────────────────
 
@@ -202,7 +242,7 @@ class MusicRepository(
      *         existing media file to include.
      */
     suspend fun zipSongs(songs: List<SongEntity>): File? = withContext(Dispatchers.IO) {
-        val toZip = songs.filter { File(it.filePath).exists() }
+        val toZip = songs.filter { SongMedia.exists(it) }
         if (toZip.isEmpty()) return@withContext null
 
         val dir = File(context.getExternalFilesDir(null), "downloads").also { it.mkdirs() }
@@ -212,20 +252,20 @@ class MusicRepository(
         val usedNames = mutableSetOf<String>()
         java.util.zip.ZipOutputStream(zipFile.outputStream().buffered()).use { zos ->
             toZip.forEach { song ->
-                val src = File(song.filePath)
-                val ext = src.extension.ifBlank { "mp3" }
+                val ext = SongMedia.extension(song)
                 val base = "${song.artist} - ${song.title}"
                     .replace(Regex("[\\\\/:*?\"<>|]"), "_")
                     .trim()
-                    .ifBlank { src.nameWithoutExtension }
+                    .ifBlank { SongMedia.fileName(song).substringBeforeLast('.') }
                 var name = "$base.$ext"
                 var n = 1
                 while (!usedNames.add(name)) {
                     name = "$base ($n).$ext"
                     n++
                 }
+                val stream = SongMedia.readStream(song) ?: return@forEach
                 zos.putNextEntry(java.util.zip.ZipEntry(name))
-                src.inputStream().use { it.copyTo(zos) }
+                stream.use { it.copyTo(zos) }
                 zos.closeEntry()
             }
         }
@@ -314,26 +354,45 @@ class MusicRepository(
 
             val ext = fileName.substringAfterLast(".", "mp3").lowercase()
 
-            val destDir = File(context.getExternalFilesDir(null), "imported").also { it.mkdirs() }
-            val destFile = File(destDir, "${System.currentTimeMillis()}.$ext")
-            context.contentResolver.openInputStream(uri)?.use { it.copyTo(destFile.outputStream()) }
+            // Stage the picked file in cache, then hand it to the library
+            // folder under a readable name (falls back to app-private storage
+            // when the user hasn't granted a folder yet).
+            val stagedDir = File(context.cacheDir, "import_tmp").also { it.mkdirs() }
+            val staged = File(stagedDir, "${System.currentTimeMillis()}.$ext")
+            context.contentResolver.openInputStream(uri)?.use { it.copyTo(staged.outputStream()) }
                 ?: throw Exception("Cannot open file")
+
+            val songId = "local_${System.currentTimeMillis()}"
+            val displayName = librarySync.buildFileName(artist, title, songId, ext)
+            val storedUri = if (MuseStorage.hasAccess()) {
+                MuseStorage.importFile(staged, displayName)
+            } else null
+            val filePath = if (storedUri != null) {
+                staged.delete()
+                storedUri.toString()
+            } else {
+                val destDir = File(context.getExternalFilesDir(null), "imported").also { it.mkdirs() }
+                val dest = File(destDir, displayName)
+                staged.copyTo(dest, overwrite = true)
+                staged.delete()
+                dest.absolutePath
+            }
 
             // Insert at the TOP of the user's custom order (see downloadAndSave).
             songDao.shiftAllSortOrders()
-            songDao.insertSong(
-                SongEntity(
-                    id = "local_${destFile.name}",
-                    title = title,
-                    artist = artist,
-                    filePath = destFile.absolutePath,
-                    duration = durMs,
-                    thumbnailUrl = null,
-                    sourceUrl = uri.toString(),
-                    sortOrder = 0,
-                    createdAt = System.currentTimeMillis()
-                )
+            val song = SongEntity(
+                id = songId,
+                title = title,
+                artist = artist,
+                filePath = filePath,
+                duration = durMs,
+                thumbnailUrl = null,
+                sourceUrl = uri.toString(),
+                sortOrder = 0,
+                createdAt = System.currentTimeMillis()
             )
+            songDao.insertSong(song)
+            librarySync.writeSongSidecar(song)
             null
         } finally {
             retriever.release()
@@ -386,19 +445,30 @@ class MusicRepository(
      */
     suspend fun touchSong(songId: String) = withContext(Dispatchers.IO) {
         songDao.touchCreatedAt(songId, System.currentTimeMillis())
+        songDao.getSongById(songId)?.let { librarySync.writeSongSidecar(it) }
     }
 
     suspend fun deleteSong(song: SongEntity) = withContext(Dispatchers.IO) {
-        File(song.filePath).takeIf { it.exists() }?.delete()
+        // Remember which playlists contained it so their .m3u8 files can drop
+        // the entry after the row (and its cross-refs) are gone.
+        val affected = playlistDao.getPlaylistIdsForSong(song.id)
+        SongMedia.delete(song)
         songDao.deleteSong(song)
+        affected.forEach { librarySync.exportPlaylist(it) }
     }
 
     suspend fun deleteSongs(ids: Set<String>) = withContext(Dispatchers.IO) {
-        ids.forEach { id -> songDao.getSongById(id)?.let { File(it.filePath).takeIf { f -> f.exists() }?.delete() } }
+        val affected = ids.flatMap { playlistDao.getPlaylistIdsForSong(it) }.toSet()
+        ids.forEach { id ->
+            songDao.getSongById(id)?.let { SongMedia.delete(it) }
+        }
         songDao.deleteSongsByIds(ids.toList())
+        affected.forEach { librarySync.exportPlaylist(it) }
     }
 
     // ── Playlist ops ────────────────────────────────────────────────────────
+    // Every mutation is mirrored to `Playlists/<name>.m3u8` inside the library
+    // folder, so playlists are editable outside the app too.
     suspend fun createPlaylist(name: String): Long = withContext(Dispatchers.IO) {
         // Insert at the TOP of the Playlists list: bump every existing
         // playlist's sortOrder up by one, then place this one at position 0 so
@@ -406,14 +476,24 @@ class MusicRepository(
         // how new songs land at the top of the library). createdAt still
         // records the real creation time for any future ordering needs.
         playlistDao.shiftAllPlaylistOrders()
-        playlistDao.createPlaylist(PlaylistEntity(name = name, sortOrder = 0))
+        val id = playlistDao.createPlaylist(
+            PlaylistEntity(name = librarySync.sanitizePlaylistName(name), sortOrder = 0)
+        )
+        librarySync.exportPlaylist(id)
+        id
     }
 
-    suspend fun deletePlaylist(playlist: PlaylistEntity) =
+    suspend fun deletePlaylist(playlist: PlaylistEntity) = withContext(Dispatchers.IO) {
         playlistDao.deletePlaylist(playlist)
+        librarySync.deletePlaylistFile(playlist.name)
+    }
 
-    suspend fun renamePlaylist(id: Long, name: String) =
-        playlistDao.renamePlaylist(id, name)
+    suspend fun renamePlaylist(id: Long, name: String) = withContext(Dispatchers.IO) {
+        val oldName = playlistDao.getPlaylistById(id)?.name
+        val safeName = librarySync.sanitizePlaylistName(name)
+        playlistDao.renamePlaylist(id, safeName)
+        if (oldName != null && oldName != safeName) librarySync.renamePlaylistFile(oldName, id)
+    }
 
     suspend fun addSongToPlaylist(playlistId: Long, songId: String) = withContext(Dispatchers.IO) {
         // If the song is already a member, leave it where it is (the CrossRef
@@ -424,15 +504,20 @@ class MusicRepository(
         // top by default.
         playlistDao.shiftPlaylistPositions(playlistId, 0)
         playlistDao.addSongToPlaylist(PlaylistSongCrossRef(playlistId, songId, 0))
+        librarySync.exportPlaylist(playlistId)
     }
 
-    suspend fun removeSongFromPlaylist(playlistId: Long, songId: String) =
+    suspend fun removeSongFromPlaylist(playlistId: Long, songId: String) = withContext(Dispatchers.IO) {
         playlistDao.removeSongFromPlaylist(playlistId, songId)
+        librarySync.exportPlaylist(playlistId)
+        songDao.getSongById(songId)?.let { librarySync.writeSongSidecar(it) }
+    }
 
     suspend fun updatePlaylistSongOrder(playlistId: Long, songs: List<SongEntity>) = withContext(Dispatchers.IO) {
         songs.forEachIndexed { index, song ->
             playlistDao.updateSongPosition(playlistId, song.id, index)
         }
+        librarySync.exportPlaylist(playlistId)
     }
 
     /**

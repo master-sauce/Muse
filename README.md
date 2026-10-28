@@ -30,6 +30,9 @@ Background Playback — Mini player, shuffle, repeat, seek, skip. Full MediaSess
 🔒 No Accounts, No Ads, No Paywalls
 Just a music player that respects your files and your privacy.
 
+📂 Your Library, Your Folder
+Songs are stored as normal files in `Download/Muse` (or any folder you pick), with a `.json` sidecar holding their metadata and a `.m3u8` per playlist. Edit or delete them with any file manager — Muse re-syncs from the folder on launch.
+
 ---
 
 ## Tech Stack
@@ -44,8 +47,37 @@ Just a music player that respects your files and your privacy.
 
 ---
 
-## Permissions
+## Library Folder
 
+Muse keeps every song outside the app sandbox so the files stay yours:
+
+```
+Download/Muse/
+  Artist - Title [songId].m4a     ← audio (any format yt-dlp produced)
+  Artist - Title [songId].json    ← title, artist, duration, artwork URL, source
+                                    link, add date, playlist membership
+  Playlists/
+    Chill.m3u8                    ← standard M3U8; one per playlist
+```
+
+The folder is chosen once on first launch (`Download/Muse` is the default spot)
+and can be changed any time under **Add Music → Folder → Library folder**,
+where **Rescan** re-reads it on demand. While a migration/rescan is running an
+ongoing notification shows real progress (`32% • 16/50` plus the current song);
+it can't be swiped away and stops only through its **Cancel** button (the pass
+resumes where it left off next time). On every cold start Muse re-syncs:
+
+- file deleted in the folder → song removed from the library
+- file added to the folder → adopted (tags, then `Artist - Title` filename)
+- `.json` edited → title / artist / duration / artwork / source link updated
+- `.m3u8` edited or deleted → playlist membership / the playlist itself updated
+
+No folder access is required — without it downloads simply stay in app-private
+storage — but only a granted folder is user-editable.
+
+---
+
+## Permissions
 | Permission | Purpose |
 |-----------|---------|
 | `INTERNET` | Fetch lyrics, metadata, and media extraction|
@@ -127,6 +159,8 @@ This software is provided for educational and archival purposes. Respect creator
 **yt-dlp** — open-source media extraction - https://github.com/yt-dlp/yt-dlp
 
 **LrcLib** — lyrics database - https://lrclib.net
+
+**Odesli / song.link** — cross-platform track link resolution - https://odesli.co
 
 **Jetpack Compose & Material 3** — UI toolkit
 

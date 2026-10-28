@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import com.Music.data.local.SongEntity
+import com.Music.data.storage.SongMedia
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,22 +84,21 @@ fun shareSong(context: Context, song: SongEntity) {
     val appContext = context.applicationContext
     CoroutineScope(Dispatchers.Main).launch {
         val uri = withContext(Dispatchers.IO) {
-            val src = File(song.filePath)
-            if (!src.exists()) return@withContext null
-            val ext = src.extension.ifBlank { "mp3" }
+            val ext = SongMedia.extension(song)
             val base = "${song.artist} - ${song.title}"
                 .replace(Regex("[\\\\/:*?\"<>|]"), "_")
                 .trim()
-                .ifBlank { src.nameWithoutExtension }
+                .ifBlank { SongMedia.fileName(song).substringBeforeLast('.') }
             val dir = File(appContext.cacheDir, "share").also { it.mkdirs() }
             val dest = File(dir, "$base.$ext")
-            src.copyTo(dest, overwrite = true)
+            val input = SongMedia.readStream(song) ?: return@withContext null
+            input.use { src -> dest.outputStream().use { src.copyTo(it) } }
             FileProvider.getUriForFile(appContext, "${appContext.packageName}.provider", dest)
         } ?: return@launch
         appContext.startActivity(
             Intent.createChooser(
                 Intent(Intent.ACTION_SEND).apply {
-                    type = if (song.filePath.substringAfterLast(".").lowercase() in setOf("mp4", "mkv", "webm")) "video/*" else "audio/*"
+                    type = if (SongMedia.isVideo(song)) "video/*" else "audio/*"
                     putExtra(Intent.EXTRA_STREAM, uri)
                     putExtra(Intent.EXTRA_TITLE, song.title)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

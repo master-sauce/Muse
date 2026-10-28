@@ -84,6 +84,9 @@ fun LibraryScreen(
     val batchDownload by viewModel.batchDownload.collectAsState()
     val autoAddPlaylistId by viewModel.autoAddPlaylistId.collectAsState()
     val shareLinkState by viewModel.shareLinkState.collectAsState()
+    val storageFolderName by viewModel.storageFolderName.collectAsState()
+    val hasStorageFolder by viewModel.hasStorageFolder.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
 
     // Persist the active tab across navigation (e.g. returning from a
     // playlist detail screen lands back on the Playlists tab) and across
@@ -135,6 +138,20 @@ fun LibraryScreen(
     }
     val pickLinksFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.importLinksFile(it) }
+    }
+    // Folder where the library actually lives (Download/Muse by default). The
+    // user may point Muse anywhere; the app mirrors the DB with whatever is in
+    // that folder (see MusicRepository.syncLibraryFromDisk).
+    val pickStorageFolder = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        uri?.let { viewModel.setStorageFolder(it) }
+    }
+    LaunchedEffect(Unit) {
+        if (viewModel.shouldPromptForStorage()) {
+            viewModel.markStoragePromptShown()
+            pickStorageFolder.launch(com.Music.data.storage.MuseStorage.defaultPickerUri())
+        }
     }
 
     LaunchedEffect(selectedTab) {
@@ -532,7 +549,12 @@ fun LibraryScreen(
                         // Keep the sheet open so the user can review the
                         // imported list and press "Download All".
                         pickLinksFile.launch(arrayOf("text/plain", "text/*", "*/*"))
-                    }
+                    },
+                    storageFolderName = storageFolderName,
+                    hasStorageFolder = hasStorageFolder,
+                    isSyncing = isSyncing,
+                    onChangeStorageFolder = { pickStorageFolder.launch(null) },
+                    onRescanLibrary = { viewModel.syncLibrary(showSummary = true) }
                 )
             }
         }
@@ -1841,7 +1863,12 @@ fun AddMusicSheet(
     onDownloadPlaylist: () -> Unit,
     onCancelPlaylist: () -> Unit,
     onExportLibrary: () -> Unit,
-    onImportLinksFile: () -> Unit
+    onImportLinksFile: () -> Unit,
+    storageFolderName: String = "Muse",
+    hasStorageFolder: Boolean = false,
+    isSyncing: Boolean = false,
+    onChangeStorageFolder: () -> Unit = {},
+    onRescanLibrary: () -> Unit = {}
 ) {
     var tab by remember { mutableIntStateOf(0) }
     var urlText by remember { mutableStateOf("") }
@@ -2060,6 +2087,55 @@ fun AddMusicSheet(
                             } else {
                                 Icon(Icons.Default.CreateNewFolder, null)
                                 Spacer(Modifier.width(8.dp)); Text("Choose Folder")
+                            }
+                        }
+
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+                        // ── Library folder ────────────────────────────────
+                        // The whole library (audio + .json metadata + .m3u8
+                        // playlists) lives in a user-owned folder so it can be
+                        // managed with any file manager.
+                        Icon(
+                            Icons.Default.FolderSpecial, null, Modifier.size(36.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            "Library folder",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            if (hasStorageFolder)
+                                "Songs, metadata and playlists are saved in \"$storageFolderName\"."
+                            else
+                                "No folder chosen yet — downloads stay in app storage. Choose a folder to keep them somewhere you can reach.",
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = onChangeStorageFolder,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(if (hasStorageFolder) "Change" else "Choose")
+                            }
+                            OutlinedButton(
+                                onClick = onRescanLibrary,
+                                enabled = hasStorageFolder && !isSyncing,
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (isSyncing) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text("Rescan")
+                                }
                             }
                         }
                     }

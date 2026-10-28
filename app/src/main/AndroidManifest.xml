@@ -70,6 +70,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps the process alive while the library is migrated into the
+             user's folder (Download/Muse) and hosts the Cancel action of the
+             ongoing migration notification. -->
+        <service
+            android:name=".player.MigrationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Receives the Cancel action from download progress notifications.
              Not exported: only the system notification action (same app) fires it. -->
         <receiver

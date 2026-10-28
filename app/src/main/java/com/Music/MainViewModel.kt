@@ -25,6 +25,8 @@ import com.Music.data.remote.LrcParser
 import com.Music.data.remote.LyricsState
 import com.Music.data.remote.searchFallbackUrl
 import com.Music.data.remote.tempRoutingToken
+import com.Music.data.storage.MuseStorage
+import com.Music.data.storage.SongMedia
 import com.Music.downloader.BatchDownloadState
 import com.Music.downloader.DownloadState
 import com.Music.downloader.DownloadTask
@@ -518,7 +520,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (lastId != null) {
                 _songs.filter { it.isNotEmpty() }.first()
                 val song = _songs.value.find { it.id == lastId }
-                if (song != null && File(song.filePath).exists()) {
+                if (song != null && SongMedia.exists(song)) {
                     _currentSong.value = song
                     val lastPos = repository.getLastPlayedPosition()
                     _currentPosition.value = lastPos
@@ -561,7 +563,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             // no longer contains the song (user deleted it).
                             if (pl.any { it.id == lastId }) pl else _songs.value
                         } else _songs.value
-                        val items = sourceSongs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
+                        val items = sourceSongs.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
                         val startIndex = items.indexOfFirst { it.mediaId == lastId }.coerceAtLeast(0)
                         if (items.isNotEmpty()) {
                             // Reflect the restored context so the player's
@@ -619,7 +621,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } else _songs.value
                         _playingPlaylistId.value =
                             if (sourceSongs === _songs.value) null else lastPlaylistId
-                        val items = sourceSongs.filter { File(it.filePath).exists() }
+                        val items = sourceSongs.filter { SongMedia.exists(it) }
                             .map { buildMediaItem(it) }
                         val startIndex = items.indexOfFirst { it.mediaId == currentMediaId }
                             .coerceAtLeast(0)
@@ -1030,6 +1032,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun exportLibraryLinks() = DownloadState.exportLibraryLinks()
     fun importLinksFile(uri: Uri) = DownloadState.importLinksFile(uri)
 
+    // ── Library folder (user-visible Download/Muse) ─────────────────────────
+    // The library lives in a folder the user owns; they can copy / edit / delete
+    // files with any file manager and hit "Rescan" (or simply relaunch) to
+    // re-sync the app with whatever is on disk.
+
+    private val _storageFolderName = MutableStateFlow(MuseStorage.folderName())
+    val storageFolderName: StateFlow<String> = _storageFolderName.asStateFlow()
+
+    private val _hasStorageFolder = MutableStateFlow(MuseStorage.hasAccess())
+    val hasStorageFolder: StateFlow<Boolean> = _hasStorageFolder.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    private companion object {
+        const val PREF_STORAGE_PROMPTED = "storage_prompt_shown"
+    }
+
+    /** Persist a folder picked via `ACTION_OPEN_DOCUMENT_TREE`, then resync. */
+    fun setStorageFolder(uri: Uri) {
+        if (!MuseStorage.setTreeUri(uri)) {
+            viewModelScope.launch { _errorEvents.emit("Couldn't get access to that folder") }
+            return
+        }
+        _hasStorageFolder.value = true
+        _storageFolderName.value = MuseStorage.folderName()
+        syncLibrary(showSummary = true)
+    }
+
+    /** Re-read the folder: adopts added/edited files, drops deleted ones. */
+    fun syncLibrary(showSummary: Boolean = false) {
+        if (_isSyncing.value) return
+        viewModelScope.launch {
+            _isSyncing.value = true
+            try {
+                val result = repository.syncLibraryFromDisk(showProgress = true)
+                _storageFolderName.value = repository.storageFolderName()
+                _hasStorageFolder.value = repository.hasStorageAccess()
+                if (showSummary) {
+                    _errorEvents.emit(
+                        when {
+                            !repository.hasStorageAccess() -> "No library folder selected"
+                            result.changed ->
+                                "Library updated: ${result.added} added, " +
+                                    "${result.updated} edited, ${result.removed} removed"
+                            else -> "Library is up to date"
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                if (showSummary) _errorEvents.emit("Rescan failed: ${e.localizedMessage}")
+            } finally {
+                _isSyncing.value = false
+            }
+        }
+    }
+
+    /** Whether the "choose your library folder" picker should be shown once. */
+    fun shouldPromptForStorage(): Boolean =
+        !MuseStorage.hasAccess() &&
+            !MuseStorage.prefs().getBoolean(PREF_STORAGE_PROMPTED, false)
+
+    /** Remember that the picker was offered so it never nags again. */
+    fun markStoragePromptShown() {
+        MuseStorage.prefs().edit().putBoolean(PREF_STORAGE_PROMPTED, true).apply()
+    }
+
     // ── In-app YouTube search ───────────────────────────────────────────────
     // Lives here (not in DownloadState) because it's a UI-driven, short-lived
     // lookup — nothing to keep running across Activity death. A previous
@@ -1214,7 +1283,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Playing from the Library, not a playlist.
         _playingPlaylistId.value = null
         val player = controller ?: return
-        val items = _songs.value.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
+        val items = _songs.value.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
 
         val startIndex = items.indexOfFirst { it.mediaId == song.id }.coerceAtLeast(0)
@@ -1389,7 +1458,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addToQueue(song: SongEntity) {
         val player = controller ?: return
-        if (!File(song.filePath).exists()) return
+        if (!SongMedia.exists(song)) return
         enterManualQueueMode()
         if (song.id == _currentSong.value?.id) return
         for (i in player.mediaItemCount - 1 downTo 0) {
@@ -1529,7 +1598,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun playNext(song: SongEntity) {
         val player = controller ?: return
-        if (!File(song.filePath).exists()) return
+        if (!SongMedia.exists(song)) return
         enterManualQueueMode()
         if (song.id == _currentSong.value?.id) return
         for (i in player.mediaItemCount - 1 downTo 0) {
@@ -1600,7 +1669,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         shuffleRestoreOnDrain = -1
         _playingPlaylistId.value = fromPlaylistId
         val player = controller ?: return
-        val items = songs.filter { File(it.filePath).exists() }.map { buildMediaItem(it) }
+        val items = songs.filter { SongMedia.exists(it) }.map { buildMediaItem(it) }
         if (items.isEmpty()) return
         // Resolve the effective shuffle state: the explicit [shuffle] arg
         // (from Library / PlaylistDetail "Shuffle" buttons) OR a carried-over
@@ -1658,7 +1727,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun buildMediaItem(s: SongEntity) = MediaItem.Builder()
         .setMediaId(s.id)
-        .setUri(Uri.fromFile(File(s.filePath)))
+        .setUri(SongMedia.uri(s))
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(s.title)
@@ -1797,7 +1866,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val pl = repository.getPlaylistSongsOnce(playlistId)
                 if (pl.any { it.id == currentId }) pl else _songs.value
             } else _songs.value
-            val filtered = sourceSongs.filter { File(it.filePath).exists() }
+            val filtered = sourceSongs.filter { SongMedia.exists(it) }
             val sourceIndex = filtered.indexOfFirst { it.id == currentId }
             if (sourceIndex < 0) return@launch
 
@@ -1891,7 +1960,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val songsById = _songs.value.associateBy { it.id }
             for (id in removedFromUpNextIds) {
                 val song = songsById[id] ?: continue
-                if (!File(song.filePath).exists()) continue
+                if (!SongMedia.exists(song)) continue
                 rest.add(buildMediaItem(song))
             }
             removedFromUpNextIds.clear()

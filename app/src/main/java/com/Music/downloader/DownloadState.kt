@@ -284,7 +284,10 @@ object DownloadState {
 
         repository = MusicRepository(
             db.songDao(), db.playlistDao(), platformsService,
-            DownloadManager(appContext), appContext
+            DownloadManager(appContext), appContext,
+            com.Music.data.storage.LibrarySync(
+                db.songDao(), db.playlistDao(), appContext
+            )
         )
 
         // The foreground notification's Cancel button cancels EVERY active

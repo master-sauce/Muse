@@ -20,6 +20,46 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists WHERE id = :id")
     suspend fun getPlaylistById(id: Long): PlaylistEntity?
 
+    @Query("SELECT * FROM playlists ORDER BY sortOrder ASC")
+    suspend fun getAllPlaylistsOnce(): List<PlaylistEntity>
+
+    @Query("SELECT * FROM playlists WHERE name = :name LIMIT 1")
+    suspend fun getPlaylistByName(name: String): PlaylistEntity?
+
+    @Query("""
+        SELECT s.* FROM songs s
+        INNER JOIN playlist_songs ps ON s.id = ps.songId
+        WHERE ps.playlistId = :playlistId
+        ORDER BY ps.position ASC
+    """)
+    suspend fun getSongsInPlaylistOnce(playlistId: Long): List<SongEntity>
+
+    @Query("""
+        SELECT p.name FROM playlists p
+        INNER JOIN playlist_songs ps ON p.id = ps.playlistId
+        WHERE ps.songId = :songId
+        ORDER BY p.sortOrder ASC
+    """)
+    suspend fun getPlaylistNamesForSong(songId: String): List<String>
+
+    @Query("""
+        SELECT p.id FROM playlists p
+        INNER JOIN playlist_songs ps ON p.id = ps.playlistId
+        WHERE ps.songId = :songId
+    """)
+    suspend fun getPlaylistIdsForSong(songId: String): List<Long>
+
+    @Query("DELETE FROM playlist_songs WHERE playlistId = :playlistId")
+    suspend fun clearPlaylistSongs(playlistId: Long)
+
+    /** Drop members that are no longer listed in the playlist's m3u file/DB. */
+    @Query("DELETE FROM playlist_songs WHERE playlistId = :playlistId AND songId NOT IN (:songIds)")
+    suspend fun removeSongsNotIn(playlistId: Long, songIds: List<String>)
+
+    /** Highest playlist order index currently in use (‑1 when there are none). */
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM playlists")
+    suspend fun maxPlaylistSortOrder(): Int
+
     @Insert
     suspend fun createPlaylist(playlist: PlaylistEntity): Long
 

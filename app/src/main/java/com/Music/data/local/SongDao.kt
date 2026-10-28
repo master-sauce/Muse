@@ -14,6 +14,16 @@ interface SongDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSong(song: SongEntity)
 
+    /**
+     * Metadata refresh for an EXISTING row.
+     *
+     * Must not be replaced by [insertSong]: `INSERT OR REPLACE` deletes the
+     * conflicting row first, and `playlist_songs` has ON DELETE CASCADE — so
+     * re-inserting a song silently drops it from every playlist.
+     */
+    @Update
+    suspend fun updateSong(song: SongEntity)
+
     @Delete
     suspend fun deleteSong(song: SongEntity)
 
@@ -51,4 +61,8 @@ interface SongDao {
 
     @Query("DELETE FROM songs WHERE id IN (:ids)")
     suspend fun deleteSongsByIds(ids: List<String>)
+
+    /** Highest custom-order index currently in use (‑1 when the library is empty). */
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM songs")
+    suspend fun maxSortOrder(): Int
 }

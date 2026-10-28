@@ -45,7 +45,10 @@ class DownloadManager(private val context: Context) {
         processId: String,
         onProgress: (Float, Long) -> Unit
     ): File = withContext(Dispatchers.IO) {
-        val downloadDir = File(context.getExternalFilesDir(null), "downloads")
+        // yt-dlp can only write to a real filesystem path, so it stages into
+        // the app cache; MusicRepository then moves the finished file into the
+        // user-visible library folder (Download/Muse).
+        val downloadDir = File(context.cacheDir, "download_tmp")
         if (!downloadDir.exists()) downloadDir.mkdirs()
 
         // Use the taskId in the filename to prevent race conditions during concurrent downloads

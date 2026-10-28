@@ -16,6 +16,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.Music.MainActivity
 import com.Music.data.local.SongEntity
+import com.Music.data.storage.SongMedia
 import com.Music.downloader.DownloadState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,10 +24,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.withContext
-import java.io.File
 
-class PlaybackService : MediaSessionService() {
-    private var mediaSession: MediaSession? = null
+class PlaybackService : MediaSessionService() {    private var mediaSession: MediaSession? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // Pauses playback when audio is about to become "noisy" — i.e. the user
@@ -69,7 +68,7 @@ class PlaybackService : MediaSessionService() {
                 val repo = DownloadState.repository()
                 val lastId = repo.getLastPlayedSongId() ?: return@launch
                 val song = repo.getSongById(lastId) ?: return@launch
-                if (!File(song.filePath).exists()) return@launch
+                if (!SongMedia.exists(song)) return@launch
                 val lastPos = repo.getLastPlayedPosition()
 
                 withContext(Dispatchers.Main) {
@@ -89,7 +88,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun buildMediaItem(s: SongEntity) = MediaItem.Builder()
         .setMediaId(s.id)
-        .setUri(Uri.fromFile(File(s.filePath)))
+        .setUri(SongMedia.uri(s))
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(s.title)
