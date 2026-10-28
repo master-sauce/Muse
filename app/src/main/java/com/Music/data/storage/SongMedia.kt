@@ -59,7 +59,7 @@ object SongMedia {
         else File(song.filePath).takeIf { it.exists() }?.delete() ?: false
         // Drop the sidecar too, so the folder doesn't collect orphan metadata.
         if (isContent(song)) {
-            displayName(song)?.let { MuseStorage.find(sidecarName(it))?.delete() }
+            displayName(song)?.let { MuseStorage.deleteByName(sidecarName(it)) }
         }
         return ok
     }

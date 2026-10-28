@@ -72,6 +72,12 @@ interface PlaylistDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun addSongToPlaylist(crossRef: PlaylistSongCrossRef)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun addSongsToPlaylist(crossRefs: List<PlaylistSongCrossRef>)
+
+    @Query("DELETE FROM playlist_songs WHERE playlistId = :playlistId AND songId IN (:songIds)")
+    suspend fun removeSongsFromPlaylist(playlistId: Long, songIds: List<String>)
+
     @Query("DELETE FROM playlist_songs WHERE playlistId = :playlistId AND songId = :songId")
     suspend fun removeSongFromPlaylist(playlistId: Long, songId: String)
 
@@ -88,6 +94,10 @@ interface PlaylistDao {
      */
     @Query("UPDATE playlist_songs SET position = position + 1 WHERE playlistId = :playlistId AND position >= :fromPosition")
     suspend fun shiftPlaylistPositions(playlistId: Long, fromPosition: Int)
+
+    /** Bulk variant used when adding many songs at once (e.g. select-all). */
+    @Query("UPDATE playlist_songs SET position = position + :delta WHERE playlistId = :playlistId AND position >= :fromPosition")
+    suspend fun shiftPlaylistPositionsBy(playlistId: Long, delta: Int, fromPosition: Int)
 
     /**
      * Where a given song currently sits in [playlistId], or null if it isn't

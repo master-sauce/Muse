@@ -78,6 +78,24 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Keeps the process alive for bulk library work (playlist edits,
+             deletes, restores) and hosts the Cancel action of its notification. -->
+        <service
+            android:name=".player.LibraryTaskService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Receives the dismiss action of the migration notification and
+             re-posts it (a broadcast, so a dead sync can't start a service
+             from the background and crash the app). -->
+        <receiver
+            android:name=".data.storage.MigrationNotificationReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.Music.action.RESTORE_LIBRARY_MIGRATION_NOTIFICATION" />
+            </intent-filter>
+        </receiver>
+
         <!-- Receives the Cancel action from download progress notifications.
              Not exported: only the system notification action (same app) fires it. -->
         <receiver

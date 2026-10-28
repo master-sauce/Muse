@@ -25,6 +25,7 @@ import com.Music.data.remote.LrcParser
 import com.Music.data.remote.LyricsState
 import com.Music.data.remote.searchFallbackUrl
 import com.Music.data.remote.tempRoutingToken
+import com.Music.data.storage.LibraryTasks
 import com.Music.data.storage.MuseStorage
 import com.Music.data.storage.SongMedia
 import com.Music.downloader.BatchDownloadState
@@ -106,6 +107,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val repository: MusicRepository = DownloadState.repository()
 
+    /** Songs still in app-private storage (0 = nothing left to migrate). */
+    private val _songsAwaitingMigration = MutableStateFlow(0)
+    val songsAwaitingMigration: StateFlow<Int> = _songsAwaitingMigration.asStateFlow()
+
+    // Folder/task state lives ABOVE `init`: the init block launches collectors
+    // that write to these flows, and Kotlin initialises fields in declaration
+    // order — declaring them below `init` makes them null there (app crash).
+    private val _storageFolderName = MutableStateFlow(MuseStorage.folderName())
+    val storageFolderName: StateFlow<String> = _storageFolderName.asStateFlow()
+
+    private val _hasStorageFolder = MutableStateFlow(MuseStorage.hasAccess())
+    val hasStorageFolder: StateFlow<Boolean> = _hasStorageFolder.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    private val _isRepairingPlaylists = MutableStateFlow(false)
+    val isRepairingPlaylists: StateFlow<Boolean> = _isRepairingPlaylists.asStateFlow()
+
+    /** "sync" / "restore" — which summary to toast when the app-scoped job ends. */
+    @Volatile
+    private var pendingSummary: String? = null
+
     // Guard the preview engine against a missing clip dir cleanup race: clips
     // older than this are wiped on ViewModel init so cacheDir/previews never
     // grows unbounded even if dismiss/crash paths leak files.
@@ -119,6 +143,60 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (_: Exception) {
             }
+        }
+        refreshSongsAwaitingMigration()
+
+        // The sync itself runs app-scoped (survives the Activity); collect its
+        // result here only for the summary toast + UI counters.
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.isLibrarySyncRunning.collect { running ->
+                _isSyncing.value = running
+            }
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.lastSyncResult.collect { result ->
+                if (result == null) return@collect
+                repository.clearLastSyncResult()
+                _storageFolderName.value = repository.storageFolderName()
+                _hasStorageFolder.value = repository.hasStorageAccess()
+                refreshSongsAwaitingMigration()
+                val mode = pendingSummary
+                pendingSummary = null
+                if (mode == null) return@collect
+                _errorEvents.emit(
+                    when {
+                        !repository.hasStorageAccess() -> "No library folder selected"
+                        mode == "restore" && !result.changed -> "Folder already matches the app"
+                        mode == "restore" -> buildString {
+                            append("Restored ${result.songsRestored} songs")
+                            if (result.playlistsCreated > 0) {
+                                append(" • ${result.playlistsCreated} playlist(s) created")
+                            }
+                            if (result.added > 0) append(" • ${result.added} songs added")
+                        }
+                        result.migrated > 0 ->
+                            "Moved ${result.migrated} songs into the folder"
+                        result.playlistsCreated > 0 ->
+                            "Rebuilt ${result.playlistsCreated} playlist(s) • " +
+                                "${result.songsRestored} songs restored"
+                        result.changed ->
+                            "Library updated: ${result.added} added, " +
+                                "${result.updated} edited, ${result.removed} removed"
+                        else -> "Library is up to date"
+                    }
+                )
+            }
+        }
+    }
+
+    /** Refresh the "N songs still in app storage" counter shown in the UI. */
+    private fun refreshSongsAwaitingMigration() {
+        // Off-main and never inline: the DB read suspends, and running the body
+        // synchronously during construction would touch not-yet-initialized
+        // fields (that crashed the app on open once).
+        viewModelScope.launch(Dispatchers.IO) {
+            val count = runCatching { repository.countSongsAwaitingMigration() }.getOrDefault(0)
+            _songsAwaitingMigration.value = count
         }
     }
 
@@ -1033,18 +1111,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun importLinksFile(uri: Uri) = DownloadState.importLinksFile(uri)
 
     // ── Library folder (user-visible Download/Muse) ─────────────────────────
-    // The library lives in a folder the user owns; they can copy / edit / delete
-    // files with any file manager and hit "Rescan" (or simply relaunch) to
-    // re-sync the app with whatever is on disk.
-
-    private val _storageFolderName = MutableStateFlow(MuseStorage.folderName())
-    val storageFolderName: StateFlow<String> = _storageFolderName.asStateFlow()
-
-    private val _hasStorageFolder = MutableStateFlow(MuseStorage.hasAccess())
-    val hasStorageFolder: StateFlow<Boolean> = _hasStorageFolder.asStateFlow()
-
-    private val _isSyncing = MutableStateFlow(false)
-    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+    // State for this section is declared above `init` (see the note there).
 
     private companion object {
         const val PREF_STORAGE_PROMPTED = "storage_prompt_shown"
@@ -1061,38 +1128,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         syncLibrary(showSummary = true)
     }
 
-    /** Re-read the folder: adopts added/edited files, drops deleted ones. */
+    /**
+     * Full library sync, user-initiated ("Sync folder"): moves songs that are
+     * still in app-private storage into the folder, adopts added/edited files,
+     * drops deleted ones, and runs the playlist passes. Runs app-scoped (the
+     * foreground service keeps it alive with the app closed).
+     */
     fun syncLibrary(showSummary: Boolean = false) {
         if (_isSyncing.value) return
-        viewModelScope.launch {
-            _isSyncing.value = true
-            try {
-                val result = repository.syncLibraryFromDisk(showProgress = true)
-                _storageFolderName.value = repository.storageFolderName()
-                _hasStorageFolder.value = repository.hasStorageAccess()
-                if (showSummary) {
-                    _errorEvents.emit(
-                        when {
-                            !repository.hasStorageAccess() -> "No library folder selected"
-                            result.changed ->
-                                "Library updated: ${result.added} added, " +
-                                    "${result.updated} edited, ${result.removed} removed"
-                            else -> "Library is up to date"
-                        }
-                    )
-                }
-            } catch (e: Exception) {
-                if (showSummary) _errorEvents.emit("Rescan failed: ${e.localizedMessage}")
-            } finally {
-                _isSyncing.value = false
-            }
-        }
+        if (showSummary) pendingSummary = "sync"
+        repository.requestLibrarySync(forcePlaylistRestore = false)
     }
 
     /** Whether the "choose your library folder" picker should be shown once. */
     fun shouldPromptForStorage(): Boolean =
         !MuseStorage.hasAccess() &&
             !MuseStorage.prefs().getBoolean(PREF_STORAGE_PROMPTED, false)
+
+    /**
+     * "Restore from folder": full sync (songs + sidecars) followed by a forced
+     * rebuild of every playlist recorded in the `.json` files — creates missing
+     * playlists, fills them, rewrites the `.m3u8`. This is the disaster-recovery
+     * path after a reinstall.
+     */
+    fun restoreFromFolder() {
+        if (_isSyncing.value) return
+        pendingSummary = "restore"
+        repository.requestLibrarySync(forcePlaylistRestore = true)
+    }
+
+    /**
+     * Playlist-only restore from the `.json` records (fast path, no song scan).
+     * Reports exactly what it found so the result is never a silent no-op.
+     */
+    fun repairPlaylists() {
+        viewModelScope.launch {
+            _isRepairingPlaylists.value = true
+            try {
+                val result = repository.restorePlaylistsFromFolder()
+                val message = when {
+                    result.sidecarsRead == 0 ->
+                        "No metadata files found in the library folder"
+                    result.restored > 0 || result.playlistsCreated > 0 ->
+                        "Restored ${result.restored} songs" +
+                            if (result.playlistsCreated > 0) " • ${result.playlistsCreated} playlist(s) created"
+                            else " into ${result.playlistsTouched} playlist(s)"
+                    result.recordedLinks == 0 ->
+                        "${result.sidecarsRead} metadata files record no playlists"
+                    else ->
+                        "Nothing to restore — every recorded song is already in place"
+                }
+                _errorEvents.emit(message)
+            } catch (e: Exception) {
+                _errorEvents.emit("Restore failed: ${e.localizedMessage}")
+            } finally {
+                _isRepairingPlaylists.value = false
+            }
+        }
+    }
 
     /** Remember that the picker was offered so it never nags again. */
     fun markStoragePromptShown() {
@@ -2303,8 +2396,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val ids = _playlistSelectedIds.value
         if (ids.isEmpty()) return
         clearPlaylistSelection()
-        viewModelScope.launch {
-            ids.forEach { repository.removeSongFromPlaylist(playlistId, it) }
+        LibraryTasks.run("Removing from playlist") { step ->
+            repository.removeSongsFromPlaylist(playlistId, ids) { phase, done, total ->
+                step(phase, done, total)
+            }
         }
     }
 
@@ -2332,24 +2427,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addPlaylistSelectedToPlaylist(targetPlaylistId: Long) {
         val ids = _playlistSelectedIds.value
         if (ids.isEmpty()) return
-        viewModelScope.launch {
-            // Insert in reverse so the first selected song ends up at the very
-            // top of the playlist (each later insert bumps the previous ones
-            // down by one). New songs always land at the top.
-            ids.reversed().forEach { repository.addSongToPlaylist(targetPlaylistId, it) }
+        // App-scoped: survives the app being closed, shows progress + Cancel.
+        LibraryTasks.run("Adding to playlist") { step ->
+            repository.addSongsToPlaylist(targetPlaylistId, ids) { phase, done, total ->
+                step(phase, done, total)
+            }
         }
     }
 
     fun deleteSelected() {
         val ids = _selectedIds.value
         clearSelection()
-        viewModelScope.launch {
-            controller?.let { player ->
-                val toRemove = mutableListOf<Int>()
-                for (i in 0 until player.mediaItemCount) if (player.getMediaItemAt(i).mediaId in ids) toRemove.add(i)
-                toRemove.sortedDescending().forEach { player.removeMediaItem(it) }
+        // Player cleanup must stay on the main thread / live controller.
+        controller?.let { player ->
+            val toRemove = mutableListOf<Int>()
+            for (i in 0 until player.mediaItemCount) {
+                if (player.getMediaItemAt(i).mediaId in ids) toRemove.add(i)
             }
-            repository.deleteSongs(ids)
+            toRemove.sortedDescending().forEach { player.removeMediaItem(it) }
+        }
+        // File + sidecar + playlist cleanup can take a while → app-scoped job
+        // with a progress notification and Cancel.
+        LibraryTasks.run("Deleting songs") { step ->
+            repository.deleteSongs(ids) { phase, done, total -> step(phase, done, total) }
         }
     }
 
@@ -2361,11 +2461,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun addSelectedToPlaylist(playlistId: Long) {
         val ids = _selectedIds.value
         if (ids.isEmpty()) return
-        viewModelScope.launch {
-            // Insert in reverse so the first selected song ends up at the very
-            // top of the playlist (each later insert bumps the previous ones
-            // down by one). New songs always land at the top.
-            ids.reversed().forEach { repository.addSongToPlaylist(playlistId, it) }
+        LibraryTasks.run("Adding to playlist") { step ->
+            repository.addSongsToPlaylist(playlistId, ids) { phase, done, total ->
+                step(phase, done, total)
+            }
         }
     }
 

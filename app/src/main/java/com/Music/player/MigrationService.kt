@@ -25,21 +25,23 @@ class MigrationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(
-            MigrationNotifications.NOTIFICATION_ID,
-            notifications.buildForegroundNotification()
-        )
+        // If the system starts us while the app is in the background (e.g. a
+        // leftover notification action), startForeground() can throw
+        // ForegroundServiceStartNotAllowedException on Android 12+ — that used
+        // to crash the whole process. Fail quietly instead.
+        val started = runCatching {
+            startForeground(
+                MigrationNotifications.NOTIFICATION_ID,
+                notifications.buildForegroundNotification()
+            )
+        }.isSuccess
+        if (!started) stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CANCEL -> {
                 LibrarySync.requestCancel()
-                return START_NOT_STICKY
-            }
-            ACTION_RESTORE -> {
-                // Dismissed (Android 13+ allows swiping FGS notifications) → re-post.
-                notifications.restore()
                 return START_NOT_STICKY
             }
             ACTION_STOP -> {
@@ -65,7 +67,6 @@ class MigrationService : Service() {
 
     companion object {
         const val ACTION_CANCEL = "com.Music.action.CANCEL_LIBRARY_MIGRATION"
-        const val ACTION_RESTORE = "com.Music.action.RESTORE_LIBRARY_MIGRATION_NOTIFICATION"
         const val ACTION_STOP = "com.Music.action.STOP_LIBRARY_MIGRATION_SERVICE"
     }
 }

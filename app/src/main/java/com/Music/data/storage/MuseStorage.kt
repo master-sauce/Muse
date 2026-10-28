@@ -130,8 +130,31 @@ object MuseStorage {
 
     // ── Listing ─────────────────────────────────────────────────────────────
 
-    fun list(): List<DocumentFile> =
-        runCatching { rootOrNull()?.listFiles()?.toList() }.getOrNull() ?: emptyList()
+    /**
+     * Folder children indexed by display name.
+     *
+     * `DocumentFile.findFile()` re-queries the whole directory for every lookup;
+     * with a few thousand files that turns any per-song loop into O(n²) and
+     * makes the migration look hung. One listing + in-place updates instead.
+     */
+    private var childIndex: MutableMap<String, DocumentFile>? = null
+
+    fun invalidateIndex() {
+        childIndex = null
+    }
+
+    private fun index(): MutableMap<String, DocumentFile> {
+        childIndex?.let { return it }
+        val map = HashMap<String, DocumentFile>()
+        runCatching { rootOrNull()?.listFiles() }.getOrNull()?.forEach { doc ->
+            val name = doc.name ?: return@forEach
+            map[name] = doc
+        }
+        childIndex = map
+        return map
+    }
+
+    fun list(): List<DocumentFile> = index().values.toList()
 
     /** Audio/video documents directly inside the library folder. */
     fun listAudio(): List<DocumentFile> = list().filter { doc ->
@@ -141,8 +164,31 @@ object MuseStorage {
         else isMediaName(doc.name)
     }
 
-    fun find(name: String): DocumentFile? =
-        runCatching { rootOrNull()?.findFile(name) }.getOrNull()
+    fun find(name: String): DocumentFile? = index()[name]
+
+    /** Drop a document from the index after it was deleted/renamed elsewhere. */
+    fun forget(doc: DocumentFile) {
+        val map = childIndex ?: return
+        val name = doc.name
+        if (name != null) map.remove(name) else forgetByUri(map, doc.uri)
+    }
+
+    fun forget(name: String) {
+        childIndex?.remove(name)
+    }
+
+    private fun forgetByUri(map: MutableMap<String, DocumentFile>, uri: Uri) {
+        val key = map.entries.firstOrNull { it.value.uri == uri }?.key ?: return
+        map.remove(key)
+    }
+
+    /** Delete by display name, keeping the index in sync. */
+    fun deleteByName(name: String): Boolean {
+        val doc = find(name) ?: return false
+        val ok = runCatching { doc.delete() }.getOrDefault(false)
+        forget(name)
+        return ok
+    }
 
     fun playlistDir(create: Boolean): DocumentFile? {
         val dir = rootOrNull() ?: return null
@@ -173,7 +219,7 @@ object MuseStorage {
     fun writeText(name: String, text: String, mime: String = MIME_JSON): Boolean {
         val dir = rootOrNull() ?: return false
         return runCatching {
-            val existing = dir.findFile(name)
+            val existing = find(name)
             val target = existing ?: dir.createFile(mime, name) ?: return false
             appContext.contentResolver.openOutputStream(target.uri, "wt")?.use { out ->
                 out.write(text.toByteArray())
@@ -181,9 +227,11 @@ object MuseStorage {
             // Some providers append an extension from the MIME type; keep the
             // exact name so sidecars stay discoverable by name.
             if (target.name != name) renameDocument(target.uri, name)
+            childIndex?.put(name, target)
             true
         }.getOrElse {
             Log.e(TAG, "writeText($name) failed", it)
+            invalidateIndex()
             false
         }
     }
@@ -247,7 +295,10 @@ object MuseStorage {
             val input = appContext.contentResolver.openInputStream(source) ?: return null
             // Providers append the extension themselves when the name has none;
             // we always pass a complete name, so the file lands exactly as named.
-            dir.findFile(displayName)?.delete()
+            find(displayName)?.let {
+                it.delete()
+                forget(displayName)
+            }
             val doc = dir.createFile(mimeForName(displayName), displayName)
                 ?: run { input.close(); return null }
             input.use { src ->
@@ -257,10 +308,14 @@ object MuseStorage {
             }
             // Providers may append an extension derived from the MIME type.
             // Keep the exact name requested so sidecar/m3u references match.
-            if (doc.name != displayName) renameDocument(doc.uri, displayName) ?: doc.uri
-            else doc.uri
+            val finalUri =
+                if (doc.name != displayName) renameDocument(doc.uri, displayName) ?: doc.uri
+                else doc.uri
+            childIndex?.put(displayName, doc)
+            finalUri
         }.getOrElse {
             Log.e(TAG, "importFile($displayName) failed", it)
+            invalidateIndex()
             null
         }
     }
@@ -273,9 +328,13 @@ object MuseStorage {
         appContext.contentResolver.openInputStream(uri)?.use { true } ?: false
     }.getOrElse { false }
 
-    fun delete(uri: Uri): Boolean = runCatching {
-        DocumentsContract.deleteDocument(appContext.contentResolver, uri)
-    }.getOrElse { false }
+    fun delete(uri: Uri): Boolean {
+        val ok = runCatching {
+            DocumentsContract.deleteDocument(appContext.contentResolver, uri)
+        }.getOrElse { false }
+        if (ok) childIndex?.let { forgetByUri(it, uri) }
+        return ok
+    }
 
     /** Display name of a document URI (`Artist - Title [id].m4a`). */
     fun displayName(uri: Uri): String? {
@@ -321,9 +380,22 @@ object MuseStorage {
      * "Song.mp4" used to become "Song.mp4.m4a"); renaming straight after the
      * create pins the name we actually asked for.
      */
-    fun renameDocument(uri: Uri, newName: String): Uri? = runCatching {
-        DocumentsContract.renameDocument(appContext.contentResolver, uri, newName)
-    }.getOrNull()
+    fun renameDocument(uri: Uri, newName: String): Uri? {
+        val map = childIndex
+        val previousName = map?.entries?.firstOrNull { it.value.uri == uri }?.key
+        val renamed = runCatching {
+            DocumentsContract.renameDocument(appContext.contentResolver, uri, newName)
+        }.getOrNull()
+        // Keep the index in sync instead of dropping it: normalizing a few
+        // thousand names would otherwise re-list the folder every time.
+        if (renamed != null && map != null) {
+            previousName?.let { map.remove(it) }
+            runCatching { DocumentFile.fromSingleUri(appContext, renamed) }
+                .getOrNull()
+                ?.let { map[newName] = it }
+        }
+        return renamed
+    }
 
     fun mimeForName(name: String): String = when (extensionOf(name)) {
         "mp3" -> "audio/mpeg"

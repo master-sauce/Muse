@@ -2,6 +2,7 @@ package com.Music
 
 import android.app.Application
 import android.util.Log
+import com.Music.data.storage.LibraryTasks
 import com.Music.data.storage.MuseStorage
 import com.Music.downloader.DownloadState
 import com.yausername.youtubedl_android.YoutubeDL
@@ -17,6 +18,8 @@ class MuseApp : Application() {
             // Library folder access must be resolved before the repository is
             // built (downloads land there and the DB mirrors its contents).
             MuseStorage.init(this)
+            // App-scoped runner for long library jobs (bulk playlist edits…).
+            LibraryTasks.init(this)
 
             // Initialize YoutubeDL and FFmpeg
             YoutubeDL.getInstance().init(this)
@@ -29,13 +32,11 @@ class MuseApp : Application() {
             // DownloadService as a foreground service).
             DownloadState.init(this)
 
-            // Re-sync the library with the user's folder on every cold start:
-            // files they deleted are dropped from the library, files they added
-            // (or edited) are picked up.
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching { DownloadState.repository().syncLibraryFromDisk() }
-                    .onFailure { Log.w("MuseApp", "Library sync failed", it) }
-            }
+            // Deliberately NO automatic library sync here: scanning/migrating a
+            // few thousand files goes through the SAF provider and would make
+            // every cold start feel slow. The folder is read on demand
+            // ("Sync folder" / "Repair playlists") and songs downloaded from now
+            // on are written straight into it.
 
             // Background update yt-dlp to ensure it works with latest site changes
             // This often fixes the "doesn't do anything" issue when downloading

@@ -26,7 +26,7 @@ class MigrationNotifications(private val context: Context) {
     private val manager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    init { ensureChannel() }
+    init { runCatching { ensureChannel() } }
 
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -78,16 +78,20 @@ class MigrationNotifications(private val context: Context) {
             else -> "Working in \u201c${MuseStorage.folderName()}\u201d"
         }
 
-        manager.notify(
-            NOTIFICATION_ID,
-            baseBuilder()
-                .setContentTitle(title)
-                .setContentText(text)
-                .setSubText("$percent%")
-                .setProgress(100, percent, false)
-                .addAction(CANCEL_ICON, "Cancel", cancelIntent())
-                .build()
-        )
+        // Posting can throw (permission revoked, channel removed); that must
+        // never take the app down mid-sync.
+        runCatching {
+            manager.notify(
+                NOTIFICATION_ID,
+                baseBuilder()
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setSubText("$percent%")
+                    .setProgress(100, percent, false)
+                    .addAction(CANCEL_ICON, "Cancel", cancelIntent())
+                    .build()
+            )
+        }
     }
 
     /**
@@ -102,7 +106,7 @@ class MigrationNotifications(private val context: Context) {
 
     fun finish() {
         lastProgress = null
-        manager.cancel(NOTIFICATION_ID)
+        runCatching { manager.cancel(NOTIFICATION_ID) }
     }
 
     // ── Intents ─────────────────────────────────────────────────────────────
@@ -128,16 +132,16 @@ class MigrationNotifications(private val context: Context) {
         )
     }
 
-    /** Fired when the notification is dismissed; asks the service to re-post it. */
+    /** Fired when the notification is dismissed; asks the receiver to re-post it. */
     private fun restoreIntent(): PendingIntent {
-        val intent = Intent(context, MigrationService::class.java)
-            .setAction(MigrationService.ACTION_RESTORE)
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            PendingIntent.getForegroundService(context, RESTORE_REQUEST_CODE, intent, flags)
-        } else {
-            PendingIntent.getService(context, RESTORE_REQUEST_CODE, intent, flags)
-        }
+        val intent = Intent(context, MigrationNotificationReceiver::class.java)
+            .setAction(MigrationNotificationReceiver.ACTION_RESTORE)
+        return PendingIntent.getBroadcast(
+            context,
+            RESTORE_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     private fun baseBuilder(): NotificationCompat.Builder =

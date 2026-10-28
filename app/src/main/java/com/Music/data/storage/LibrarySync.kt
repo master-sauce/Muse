@@ -12,6 +12,7 @@ import com.Music.data.local.PlaylistSongCrossRef
 import com.Music.data.local.SongDao
 import com.Music.data.local.SongEntity
 import com.Music.player.MigrationService
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -23,10 +24,23 @@ data class SyncResult(
     val added: Int = 0,
     val removed: Int = 0,
     val updated: Int = 0,
-    val migrated: Int = 0
+    val migrated: Int = 0,
+    val playlistsCreated: Int = 0,
+    val songsRestored: Int = 0
 ) {
-    val changed: Boolean get() = added + removed + updated + migrated > 0
+    val changed: Boolean
+        get() = added + removed + updated + migrated + playlistsCreated + songsRestored > 0
 }
+
+/** Outcome of a manual playlist restore, surfaced in the toast. */
+data class RepairResult(
+    val sidecarsRead: Int = 0,
+    val recordedLinks: Int = 0,
+    val restored: Int = 0,
+    val playlistsTouched: Int = 0,
+    val playlistsCreated: Int = 0,
+    val unknownPlaylists: Set<String> = emptySet()
+)
 
 /**
  * Two-way mirror between the Room library and the user-visible folder.
@@ -50,7 +64,9 @@ class LibrarySync(
         private val ILLEGAL = Regex("[\\\\/:*?\"<>|\\r\\n\\t]")
         private val ID_SUFFIX = Regex("\\[([A-Za-z0-9_-]+)]$")
         private const val PREF_EXPORTED_PLAYLISTS = "exported_playlists"
-        private const val PREF_MEMBERSHIP_RECOVERED = "membership_recovered_v1"
+
+        /** Playlist names the user deleted, so a restore never resurrects them. */
+        private const val PREF_DELETED_PLAYLISTS = "deleted_playlists"
 
         /**
          * Set by the notification's Cancel action (via [MigrationService]).
@@ -79,13 +95,51 @@ class LibrarySync(
     @Volatile
     private var migrationServiceRunning = false
 
-    suspend fun syncFromDisk(showProgress: Boolean = false): SyncResult = syncMutex.withLock {
-        syncFromDiskLocked(showProgress)
+    suspend fun syncFromDisk(
+        showProgress: Boolean = false,
+        forcePlaylistRestore: Boolean = false
+    ): SyncResult = syncMutex.withLock {
+        syncFromDiskLocked(showProgress, forcePlaylistRestore)
     }
 
-    private suspend fun syncFromDiskLocked(showProgress: Boolean = false): SyncResult {
+    // ── App-scoped sync requests ────────────────────────────────────────────
+    // The sync must outlive the Activity (the user closes the app while a
+    // 1300-song pass runs), so it is launched from a scope owned by this
+    // long-lived instance instead of viewModelScope.
+
+    private val syncScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO
+    )
+
+    private val _lastSyncResult = kotlinx.coroutines.flow.MutableStateFlow<SyncResult?>(null)
+    val lastSyncResult: kotlinx.coroutines.flow.StateFlow<SyncResult?> = _lastSyncResult
+
+    val isSyncRunning = kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    /** Fire-and-forget sync that survives the caller's lifecycle. */
+    fun requestSync(showProgress: Boolean = true, forcePlaylistRestore: Boolean = false) {
+        if (isSyncRunning.value) return
+        isSyncRunning.value = true
+        syncScope.launch {
+            try {
+                _lastSyncResult.value = syncFromDisk(showProgress, forcePlaylistRestore)
+            } catch (_: Throwable) {
+                _lastSyncResult.value = SyncResult()
+            } finally {
+                isSyncRunning.value = false
+            }
+        }
+    }
+
+    fun clearLastSyncResult() {
+        _lastSyncResult.value = null
+    }
+
+    private suspend fun syncFromDiskLocked(showProgress: Boolean = false, forcePlaylistRestore: Boolean = false): SyncResult {
         cancelRequested = false
         SongMedia.clearPresenceCache()
+        // Pick up files the user added/renamed/removed outside the app.
+        MuseStorage.invalidateIndex()
         if (!MuseStorage.hasAccess()) return SyncResult()
         val docs = MuseStorage.listAudio()
         val dbSongs = songDao.getAllSongsOnce()
@@ -97,6 +151,8 @@ class LibrarySync(
 
         var added = 0
         var updated = 0
+        var playlistsCreated = 0
+        var songsRestored = 0
         // Songs the user still has on disk, by library id.
         val alive = mutableSetOf<String>()
 
@@ -107,12 +163,10 @@ class LibrarySync(
         val legacySongs = dbSongs.filter { !SongMedia.isContent(it) && File(it.filePath).exists() }
         val playlistFileCount = MuseStorage.listPlaylistFiles().size
         val dbPlaylistCount = playlistDao.getAllPlaylistsOnce().size
-        val playlistWork = playlistFileCount + dbPlaylistCount
-        val membershipPending =
-            !MuseStorage.prefs().getBoolean(PREF_MEMBERSHIP_RECOVERED, false)
+        // Per playlist: repair pass + m3u reconcile/export.
+        val playlistWork = playlistFileCount + dbPlaylistCount * 2
         val total = legacySongs.size + docs.size + playlistWork
-        val progressShown = total > 0 &&
-            (showProgress || legacySongs.isNotEmpty() || membershipPending)
+        val progressShown = total > 0 && (showProgress || legacySongs.isNotEmpty())
 
         var completed = 0
         if (progressShown) startMigration(total)
@@ -228,6 +282,7 @@ class LibrarySync(
                     val sidecarBase = name.dropLast(".json".length)
                     if (sidecarBase !in audioBases && sidecarBase.substringBeforeLast('.') !in audioBases) {
                         doc.delete()
+                        MuseStorage.forget(name)
                     }
                 }
 
@@ -238,11 +293,21 @@ class LibrarySync(
                     }
                 }
 
-                // Pass 4b: repair playlist memberships that an older build dropped.
-                recoverMembershipFromSidecars()
-
-                // Pass 5: playlists — m3u files are the source of truth when present.
+                // Pass 5: playlists from the m3u files (creates/orders them).
+                if (progressShown) {
+                    // Announce the phase immediately — this pass can take a while
+                    // on a large library and would otherwise look frozen.
+                    notifications.update(completed, total, null, cancelRequested, "Checking playlists")
+                }
                 syncPlaylists()
+
+                // Pass 6: restore playlists from the per-song JSON records. On a
+                // fresh install this recreates every playlist the sidecars know
+                // about, even if the .m3u8 files are gone. Ignored after the
+                // first successful run unless the user asks for it explicitly.
+                val restored = restoreMembershipsLocked(force = forcePlaylistRestore)
+                playlistsCreated = restored.playlistsCreated
+                songsRestored = restored.restored
             }
 
             progressTick = null
@@ -250,7 +315,14 @@ class LibrarySync(
                 notifications.update(total, total, null, false, "Library checked")
             }
 
-            return SyncResult(added = added, removed = removed, updated = updated, migrated = migrated)
+            return SyncResult(
+                added = added,
+                removed = removed,
+                updated = updated,
+                migrated = migrated,
+                playlistsCreated = playlistsCreated,
+                songsRestored = songsRestored
+            )
         } finally {
             if (progressShown) stopMigration()
         }
@@ -285,43 +357,127 @@ class LibrarySync(
     }
 
     /**
-     * One-shot repair for libraries damaged by the `INSERT OR REPLACE`
-     * cascade bug: re-insert songs whose sidecar still lists a playlist they
-     * are no longer a member of. Runs before the m3u pass and rewrites the
-     * affected playlists so the file agrees with the recovery.
+     * Rebuild playlists from the per-song `.json` records.
+     *
+     * Every sidecar carries `"playlists": ["favorite songs", …]`, so the folder
+     * alone is enough to reconstruct the whole playlist set — this is what makes
+     * "fresh install + point at the backup folder" restore everything, and what
+     * the **Restore from folder** button runs on demand.
+     *
+     * Playlists that don't exist yet are created; existing ones get their
+     * missing members appended, then the `.m3u8` is rewritten.
+     *
+     * Reads every sidecar exactly once and inverts the mapping (playlist →
+     * song ids); a playlist×song loop meant ~10⁷ provider calls.
      */
-    private suspend fun recoverMembershipFromSidecars() {
-        val prefs = MuseStorage.prefs()
-        if (prefs.getBoolean(PREF_MEMBERSHIP_RECOVERED, false)) return
-
+    private suspend fun restoreMembershipsLocked(force: Boolean): RepairResult {
+        if (!MuseStorage.hasAccess()) return RepairResult()
         val songs = songDao.getAllSongsOnce().filter { SongMedia.isContent(it) }
-        val playlists = playlistDao.getAllPlaylistsOnce()
-        if (songs.isEmpty() || playlists.isEmpty()) return
+        if (songs.isEmpty()) return RepairResult()
 
-        var sawSidecar = false
-        for (playlist in playlists) {
-            val members = playlistDao.getSongsInPlaylistOnce(playlist.id).map { it.id }.toMutableSet()
+        val recordedByPlaylist = HashMap<String, MutableList<String>>()
+        var sidecarsRead = 0
+        var recordedLinks = 0
+        for (song in songs) {
+            val text = MuseStorage.readText(sidecarNameFor(song)) ?: continue
+            sidecarsRead++
+            val array = runCatching { JSONObject(text).optJSONArray("playlists") }
+                .getOrNull() ?: continue
+            for (i in 0 until array.length()) {
+                val name = array.optString(i)
+                if (name.isBlank()) continue
+                recordedLinks++
+                recordedByPlaylist.getOrPut(name) { mutableListOf() }.add(song.id)
+            }
+        }
+        if (recordedByPlaylist.isEmpty()) return RepairResult(sidecarsRead = sidecarsRead)
+
+        // Names the user deleted on purpose must never be resurrected.
+        val deleted = MuseStorage.prefs()
+            .getStringSet(PREF_DELETED_PLAYLISTS, emptySet()).orEmpty()
+            .toMutableSet()
+
+        var restored = 0
+        var touched = 0
+        var created = 0
+        val existing = playlistDao.getAllPlaylistsOnce().associateBy { it.name }
+        for ((name, recorded) in recordedByPlaylist) {
+            progressTick?.invoke(name)
+            val playlist = existing[name]
+            if (playlist == null) {
+                if (name in deleted) continue
+                // The playlist vanished entirely (fresh install, folder copied
+                // back, .m3u8 lost) → rebuild it from the JSON records.
+                val id = playlistDao.createPlaylist(
+                    PlaylistEntity(
+                        name = name,
+                        sortOrder = playlistDao.maxPlaylistSortOrder() + 1
+                    )
+                )
+                val fresh = playlistDao.getPlaylistById(id) ?: continue
+                created++
+                notePlaylistCreated(name)
+                recorded.forEachIndexed { index, songId ->
+                    playlistDao.addSongToPlaylist(
+                        PlaylistSongCrossRef(fresh.id, songId, index)
+                    )
+                    restored++
+                }
+                exportPlaylist(fresh.id)
+                touched++
+                continue
+            }
+            // Existing playlist: only the forced restore adds members back, so a
+            // deliberate .m3u8 edit (removing songs) still sticks.
+            if (!force) continue
+            val members = playlistDao.getSongsInPlaylistOnce(playlist.id)
+                .map { it.id }
+                .toMutableSet()
             var position = members.size
             var changed = false
-            for (song in songs) {
-                if (song.id in members) continue
-                val text = MuseStorage.readText(sidecarNameFor(song)) ?: continue
-                sawSidecar = true
-                val listed = runCatching {
-                    val array = JSONObject(text).optJSONArray("playlists") ?: return@runCatching false
-                    (0 until array.length()).any { array.optString(it) == playlist.name }
-                }.getOrDefault(false)
-                if (!listed) continue
+            for (songId in recorded) {
+                if (!members.add(songId)) continue
                 playlistDao.addSongToPlaylist(
-                    PlaylistSongCrossRef(playlist.id, song.id, position++)
+                    PlaylistSongCrossRef(playlist.id, songId, position++)
                 )
-                members.add(song.id)
+                restored++
                 changed = true
             }
-            if (changed) exportPlaylist(playlist.id)
-            progressTick?.invoke(playlist.name)
+            if (changed) {
+                exportPlaylist(playlist.id)
+                touched++
+            }
         }
-        if (sawSidecar) prefs.edit().putBoolean(PREF_MEMBERSHIP_RECOVERED, true).apply()
+
+        return RepairResult(
+            sidecarsRead = sidecarsRead,
+            recordedLinks = recordedLinks,
+            restored = restored,
+            playlistsTouched = touched,
+            playlistsCreated = created
+        )
+    }
+
+    /**
+     * User-triggered restore ("Restore playlists from files"): ignores the
+     * one-time guard. On a fresh install (no songs in the DB yet) it adopts the
+     * folder first, then rebuilds the playlists, so the button works either way.
+     */
+    suspend fun restoreMemberships(): RepairResult = syncMutex.withLock {
+        SongMedia.clearPresenceCache()
+        MuseStorage.invalidateIndex()
+
+        val hasSongs = songDao.getAllSongsOnce().any { SongMedia.isContent(it) }
+        if (!hasSongs && MuseStorage.hasAccess()) {
+            val sync = syncFromDiskLocked(showProgress = true, forcePlaylistRestore = true)
+            return@withLock RepairResult(
+                sidecarsRead = sync.added,
+                restored = sync.songsRestored,
+                playlistsTouched = sync.playlistsCreated,
+                playlistsCreated = sync.playlistsCreated
+            )
+        }
+        restoreMembershipsLocked(force = true)
     }
 
     private fun merge(
@@ -427,6 +583,7 @@ class LibrarySync(
             val fileName = file.name ?: continue
             val name = fileName.substringBeforeLast('.').trim().ifBlank { "Playlist" }
             folderPlaylists.add(name)
+            progressTick?.invoke(name)
             val text = MuseStorage.readText(file) ?: continue
             val entries = parseM3u(text)
 
@@ -459,13 +616,19 @@ class LibrarySync(
             if (resolved.isEmpty()) {
                 playlistDao.clearPlaylistSongs(playlistId)
             } else {
+                val dropped = current.map { it.id }.filterNot { it in resolved }
                 playlistDao.removeSongsNotIn(playlistId, resolved)
+                // Keep the JSON records honest: a membership removed because the
+                // m3u no longer lists it must disappear from the sidecar too,
+                // otherwise a future restore would resurrect it.
+                dropped.forEach { id ->
+                    songDao.getSongById(id)?.let { writeSongSidecar(it) }
+                }
                 resolved.forEachIndexed { index, songId ->
                     playlistDao.addSongToPlaylist(PlaylistSongCrossRef(playlistId, songId, index))
                     playlistDao.updateSongPosition(playlistId, songId, index)
                 }
             }
-            progressTick?.invoke(name)
         }
 
         // Playlists that only exist in the DB yet get their m3u written out.
@@ -481,7 +644,13 @@ class LibrarySync(
             val known = MuseStorage.prefs().getStringSet(PREF_EXPORTED_PLAYLISTS, emptySet())
                 .orEmpty()
             for (name in known - folderPlaylists) {
-                playlistDao.getPlaylistByName(name)?.let { playlistDao.deletePlaylist(it) }
+                val playlist = playlistDao.getPlaylistByName(name) ?: continue
+                val members = playlistDao.getSongsInPlaylistOnce(playlist.id)
+                playlistDao.deletePlaylist(playlist)
+                notePlaylistDeleted(name)
+                // Strip the name from the members' JSONs so neither the restore
+                // pass nor a future install brings the playlist back.
+                members.forEach { writeSongSidecar(it) }
             }
         }
         MuseStorage.prefs().edit()
@@ -512,7 +681,25 @@ class LibrarySync(
         return out
     }
 
-    // ── Push: DB → folder ───────────────────────────────────────────────────
+    /** Remember that a playlist was deleted on purpose (see restore logic). */
+    fun notePlaylistDeleted(name: String) {
+        val prefs = MuseStorage.prefs()
+        val deleted = prefs.getStringSet(PREF_DELETED_PLAYLISTS, emptySet()).orEmpty().toMutableSet()
+        if (deleted.add(name)) {
+            prefs.edit().putStringSet(PREF_DELETED_PLAYLISTS, deleted).apply()
+        }
+    }
+
+    /** A (re)created playlist may be restored again later. */
+    fun notePlaylistCreated(name: String) {
+        val prefs = MuseStorage.prefs()
+        val deleted = prefs.getStringSet(PREF_DELETED_PLAYLISTS, emptySet()).orEmpty().toMutableSet()
+        if (deleted.remove(name)) {
+            prefs.edit().putStringSet(PREF_DELETED_PLAYLISTS, deleted).apply()
+        }
+    }
+
+    // ── Push: DB → folder ─────────────────────────────────��─────────────────
 
     /** Write/refresh the metadata sidecar for one song. */
     suspend fun writeSongSidecar(song: SongEntity) {
@@ -536,11 +723,11 @@ class LibrarySync(
         MuseStorage.writeText(canonical, json.toString(2))
         // Drop a stale `<audio>.json` variant left by an older build.
         val stray = "$name.json"
-        if (stray != canonical) MuseStorage.find(stray)?.delete()
+        if (stray != canonical) MuseStorage.deleteByName(stray)
     }
 
     /** Write `Playlists/<name>.m3u8` for one playlist. */
-    suspend fun exportPlaylist(playlistId: Long) {
+    suspend fun exportPlaylist(playlistId: Long, onSidecar: ((done: Int, total: Int) -> Unit)? = null) {
         if (!MuseStorage.hasAccess()) return
         val playlist = playlistDao.getPlaylistById(playlistId) ?: return
         val songs = playlistDao.getSongsInPlaylistOnce(playlistId)
@@ -549,9 +736,10 @@ class LibrarySync(
         // Membership is part of a song's metadata too, but rewriting every
         // sidecar on each playlist edit would be a lot of provider writes —
         // only touch the ones whose playlist list actually changed.
-        songs.forEach { song ->
+        songs.forEachIndexed { index, song ->
             val names = playlistDao.getPlaylistNamesForSong(song.id)
             if (sidecarPlaylistsDiffer(song, names)) writeSongSidecar(song)
+            onSidecar?.invoke(index + 1, songs.size)
         }
     }
 
@@ -664,6 +852,7 @@ class LibrarySync(
                 MuseStorage.readText(doc)?.let { MuseStorage.writeText(canonical, it) }
             }
             doc.delete()
+            MuseStorage.forget(candidate)
         }
     }
 

@@ -11,6 +11,7 @@ import com.Music.data.remote.PlatformsService
 import com.Music.data.remote.tempRoutingToken
 import com.Music.data.storage.LibrarySync
 import com.Music.data.storage.MuseStorage
+import com.Music.data.storage.RepairResult
 import com.Music.data.storage.SongMedia
 import com.Music.data.storage.SyncResult
 import com.Music.downloader.DownloadManager
@@ -149,8 +150,37 @@ class MusicRepository(
 
     // ── Library folder (user-visible Download/Muse) ─────────────────────────
 
-    suspend fun syncLibraryFromDisk(showProgress: Boolean = false): SyncResult = withContext(Dispatchers.IO) {
-        librarySync.syncFromDisk(showProgress)
+    suspend fun syncLibraryFromDisk(
+        showProgress: Boolean = false,
+        forcePlaylistRestore: Boolean = false
+    ): SyncResult = withContext(Dispatchers.IO) {
+        librarySync.syncFromDisk(showProgress, forcePlaylistRestore)
+    }
+
+    /** Rebuild playlists from the `.json` records (manual "Restore from folder"). */
+    suspend fun restorePlaylistsFromFolder(): RepairResult = withContext(Dispatchers.IO) {
+        librarySync.restoreMemberships()
+    }
+
+    /** App-scoped sync: keeps running with the app closed (foreground service). */
+    fun requestLibrarySync(forcePlaylistRestore: Boolean = false) {
+        librarySync.requestSync(showProgress = true, forcePlaylistRestore = forcePlaylistRestore)
+    }
+
+    val lastSyncResult: kotlinx.coroutines.flow.StateFlow<SyncResult?> = librarySync.lastSyncResult
+    val isLibrarySyncRunning: kotlinx.coroutines.flow.StateFlow<Boolean> = librarySync.isSyncRunning
+
+    fun clearLastSyncResult() = librarySync.clearLastSyncResult()
+
+    /**
+     * Songs that are still living in app-private storage instead of the library
+     * folder. Cheap (DB + File.exists, no SAF scan) so the UI can show a count
+     * without paying for a full sync.
+     */
+    suspend fun countSongsAwaitingMigration(): Int = withContext(Dispatchers.IO) {
+        songDao.getAllSongsOnce().count { song ->
+            !song.filePath.startsWith("content://") && File(song.filePath).exists()
+        }
     }
 
     /** Current library folder name for the UI ("Muse" until one is granted). */
@@ -457,10 +487,14 @@ class MusicRepository(
         affected.forEach { librarySync.exportPlaylist(it) }
     }
 
-    suspend fun deleteSongs(ids: Set<String>) = withContext(Dispatchers.IO) {
+    suspend fun deleteSongs(
+        ids: Set<String>,
+        onStep: (phase: String, done: Int, total: Int) -> Unit = { _, _, _ -> }
+    ) = withContext(Dispatchers.IO) {
         val affected = ids.flatMap { playlistDao.getPlaylistIdsForSong(it) }.toSet()
-        ids.forEach { id ->
+        ids.forEachIndexed { index, id ->
             songDao.getSongById(id)?.let { SongMedia.delete(it) }
+            onStep("Deleting songs", index + 1, ids.size)
         }
         songDao.deleteSongsByIds(ids.toList())
         affected.forEach { librarySync.exportPlaylist(it) }
@@ -479,13 +513,19 @@ class MusicRepository(
         val id = playlistDao.createPlaylist(
             PlaylistEntity(name = librarySync.sanitizePlaylistName(name), sortOrder = 0)
         )
+        librarySync.notePlaylistCreated(librarySync.sanitizePlaylistName(name))
         librarySync.exportPlaylist(id)
         id
     }
 
     suspend fun deletePlaylist(playlist: PlaylistEntity) = withContext(Dispatchers.IO) {
+        val members = playlistDao.getSongsInPlaylistOnce(playlist.id)
         playlistDao.deletePlaylist(playlist)
         librarySync.deletePlaylistFile(playlist.name)
+        librarySync.notePlaylistDeleted(playlist.name)
+        // Strip the name from the members' JSON records too, otherwise a later
+        // restore would resurrect the deleted playlist.
+        members.forEach { librarySync.writeSongSidecar(it) }
     }
 
     suspend fun renamePlaylist(id: Long, name: String) = withContext(Dispatchers.IO) {
@@ -511,6 +551,52 @@ class MusicRepository(
         playlistDao.removeSongFromPlaylist(playlistId, songId)
         librarySync.exportPlaylist(playlistId)
         songDao.getSongById(songId)?.let { librarySync.writeSongSidecar(it) }
+    }
+
+    /**
+     * Bulk add (selection → playlist). Inserts every new member in one go and
+     * exports the playlist a single time — the per-song path rewrites the whole
+     * `.m3u8` and re-checks every member's sidecar, which turns "add all 1300"
+     * into an O(n²) SAF nightmare. [onStep] drives the progress notification.
+     */
+    suspend fun addSongsToPlaylist(
+        playlistId: Long,
+        songIds: Collection<String>,
+        onStep: (phase: String, done: Int, total: Int) -> Unit = { _, _, _ -> }
+    ) = withContext(Dispatchers.IO) {
+        if (songIds.isEmpty()) return@withContext
+        val existing = playlistDao.getSongsInPlaylistOnce(playlistId).map { it.id }.toSet()
+        val toAdd = songIds.filterNot { it in existing }.distinct()
+        if (toAdd.isEmpty()) return@withContext
+        val membersAfter = existing.size + toAdd.size
+        val total = toAdd.size + membersAfter
+
+        onStep("Adding to playlist", 0, total)
+        playlistDao.shiftPlaylistPositionsBy(playlistId, toAdd.size, 0)
+        playlistDao.addSongsToPlaylist(
+            toAdd.mapIndexed { index, songId -> PlaylistSongCrossRef(playlistId, songId, index) }
+        )
+        onStep("Writing playlist file", toAdd.size, total)
+        librarySync.exportPlaylist(playlistId) { done, _ ->
+            onStep("Updating song metadata", toAdd.size + done, total)
+        }
+    }
+
+    /** Bulk remove (selection → delete from playlist), one export at the end. */
+    suspend fun removeSongsFromPlaylist(
+        playlistId: Long,
+        songIds: Collection<String>,
+        onStep: (phase: String, done: Int, total: Int) -> Unit = { _, _, _ -> }
+    ) = withContext(Dispatchers.IO) {
+        if (songIds.isEmpty()) return@withContext
+        val total = songIds.size
+        onStep("Removing from playlist", 0, total)
+        playlistDao.removeSongsFromPlaylist(playlistId, songIds.toList())
+        librarySync.exportPlaylist(playlistId)
+        songIds.forEachIndexed { index, id ->
+            songDao.getSongById(id)?.let { librarySync.writeSongSidecar(it) }
+            onStep("Updating song metadata", index + 1, total)
+        }
     }
 
     suspend fun updatePlaylistSongOrder(playlistId: Long, songs: List<SongEntity>) = withContext(Dispatchers.IO) {

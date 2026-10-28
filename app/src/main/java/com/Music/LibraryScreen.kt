@@ -87,6 +87,8 @@ fun LibraryScreen(
     val storageFolderName by viewModel.storageFolderName.collectAsState()
     val hasStorageFolder by viewModel.hasStorageFolder.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
+    val isRepairingPlaylists by viewModel.isRepairingPlaylists.collectAsState()
+    val songsAwaitingMigration by viewModel.songsAwaitingMigration.collectAsState()
 
     // Persist the active tab across navigation (e.g. returning from a
     // playlist detail screen lands back on the Playlists tab) and across
@@ -553,8 +555,11 @@ fun LibraryScreen(
                     storageFolderName = storageFolderName,
                     hasStorageFolder = hasStorageFolder,
                     isSyncing = isSyncing,
+                    isRepairingPlaylists = isRepairingPlaylists,
+                    songsAwaitingMigration = songsAwaitingMigration,
                     onChangeStorageFolder = { pickStorageFolder.launch(null) },
-                    onRescanLibrary = { viewModel.syncLibrary(showSummary = true) }
+                    onRescanLibrary = { viewModel.syncLibrary(showSummary = true) },
+                    onRepairPlaylists = { viewModel.repairPlaylists() }
                 )
             }
         }
@@ -1867,8 +1872,11 @@ fun AddMusicSheet(
     storageFolderName: String = "Muse",
     hasStorageFolder: Boolean = false,
     isSyncing: Boolean = false,
+    isRepairingPlaylists: Boolean = false,
+    songsAwaitingMigration: Int = 0,
     onChangeStorageFolder: () -> Unit = {},
-    onRescanLibrary: () -> Unit = {}
+    onRescanLibrary: () -> Unit = {},
+    onRepairPlaylists: () -> Unit = {}
 ) {
     var tab by remember { mutableIntStateOf(0) }
     var urlText by remember { mutableStateOf("") }
@@ -2114,6 +2122,15 @@ fun AddMusicSheet(
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (songsAwaitingMigration > 0) {
+                            Text(
+                                "$songsAwaitingMigration songs are still in app storage — Sync folder moves them in.",
+                                style = MaterialTheme.typography.bodySmall,
+                                textAlign = TextAlign.Center,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                         Row(
                             Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -2125,17 +2142,41 @@ fun AddMusicSheet(
                             ) {
                                 Text(if (hasStorageFolder) "Change" else "Choose")
                             }
-                            OutlinedButton(
+                            Button(
                                 onClick = onRescanLibrary,
                                 enabled = hasStorageFolder && !isSyncing,
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 if (isSyncing) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    CircularProgressIndicator(
+                                        Modifier.size(16.dp),
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Working…")
                                 } else {
-                                    Text("Rescan")
+                                    Text("Sync folder")
                                 }
+                            }
+                        }
+                        // Restores every playlist recorded in the .json files —
+                        // the recovery path after a reinstall.
+                        OutlinedButton(
+                            onClick = onRepairPlaylists,
+                            enabled = hasStorageFolder && !isRepairingPlaylists,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            if (isRepairingPlaylists) {
+                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Restoring...")
+                            } else {
+                                Icon(Icons.Default.Restore, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Restore playlists from files")
                             }
                         }
                     }

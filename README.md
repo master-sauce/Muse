@@ -31,7 +31,7 @@ Background Playback — Mini player, shuffle, repeat, seek, skip. Full MediaSess
 Just a music player that respects your files and your privacy.
 
 📂 Your Library, Your Folder
-Songs are stored as normal files in `Download/Muse` (or any folder you pick), with a `.json` sidecar holding their metadata and a `.m3u8` per playlist. Edit or delete them with any file manager — Muse re-syncs from the folder on launch.
+Songs are stored as normal files in `Download/Muse` (or any folder you pick), with a `.json` sidecar holding their metadata and a `.m3u8` per playlist. Edit or delete them with any file manager — then hit **Sync folder** so Muse picks the changes up.
 
 ---
 
@@ -61,11 +61,23 @@ Download/Muse/
 ```
 
 The folder is chosen once on first launch (`Download/Muse` is the default spot)
-and can be changed any time under **Add Music → Folder → Library folder**,
-where **Rescan** re-reads it on demand. While a migration/rescan is running an
-ongoing notification shows real progress (`32% • 16/50` plus the current song);
-it can't be swiped away and stops only through its **Cancel** button (the pass
-resumes where it left off next time). On every cold start Muse re-syncs:
+and can be changed any time under **Add Music → Folder → Library folder**.
+Nothing is scanned automatically on startup (it made launches slow with a few
+thousand files) — the folder is read when you ask for it:
+
+- **Sync folder** — moves songs still in app-private storage into the folder,
+  adopts added/edited files, drops deleted ones, and runs the playlist passes.
+  The button shows how many songs are still waiting to be moved.
+- **Restore playlists from files** — rebuilds the whole playlist set from the
+  per-song `.json` records: creates any playlist that is missing (even when no
+  `.m3u8` exists), fills it with the songs whose JSON names it, and rewrites the
+  `.m3u8`. On a fresh install this runs automatically the first time a folder is
+  granted, so pointing Muse at a backed-up folder restores library + playlists.
+
+While a sync is running an ongoing notification shows real progress
+(`Checking playlists • 3/7` plus the current item); it can't be swiped away
+(and comes back if it is) and stops only through its **Cancel** button — the
+pass resumes where it left off next time. What a sync applies:
 
 - file deleted in the folder → song removed from the library
 - file added to the folder → adopted (tags, then `Artist - Title` filename)
