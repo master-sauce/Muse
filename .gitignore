@@ -1,11 +1,37 @@
-*.iml
-.gradle
-/local.properties
-.idea/
+# ── Gradle ────────────────────────────────────────────────────────────────────
+.gradle/
 .kotlin/
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Machine-specific configuration (SDK/NDK paths) — never commit
 local.properties
+keystore.properties
+
+# ── IDE: Android Studio / IntelliJ ────────────────────────────────────────────
+.idea/
+*.iml
+*.ipr
+*.iws
+captures/
+.fleet/
+
+# ── Native build output ───────────────────────────────────────────────────────
+**/.cxx/
+**/.externalNativeBuild/
+.externalNativeBuild/
+.cxx/
+
+# ── Signing material & build artifacts (never commit) ─────────────────────────
+*.jks
+*.keystore
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ── OS / tooling noise ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.hprof
+*.log
